@@ -1,0 +1,115 @@
+{
+  "expo": {
+    "name": "Ampli",
+    "slug": "ampliappdemo",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "ampli",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/images/launch-image.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.beej.amplidemo",
+      "buildNumber": "1",
+      "infoPlist": {
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLSchemes": ["ampli"]
+          }
+        ],
+        "ITSAppUsesNonExemptEncryption": false,
+        "UILaunchStoryboardName": "SplashScreen",
+        "NSCameraUsageDescription": "This app does not use the camera.",
+        "NSPhotoLibraryUsageDescription": "This app does not access your photos.",
+        "NSPhotoLibraryAddUsageDescription": "This app does not save photos to your library.",
+        "NSLocationWhenInUseUsageDescription": "This app does not use your location.",
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": false,
+          "NSExceptionDomains": {
+            "api.getwaitlist.com": {
+              "NSTemporaryExceptionAllowsInsecureHTTPLoads": false,
+              "NSIncludesSubdomains": true,
+              "NSTemporaryExceptionRequiresForwardSecrecy": true
+            }
+          }
+        }
+      },
+      "splash": {
+        "image": "./assets/images/launch-image.png",
+        "resizeMode": "contain",
+        "backgroundColor": "#ffffff",
+        "tabletImage": "./assets/images/launch-image.png"
+      },
+      "appStoreUrl": "https://apps.apple.com/app/ampli/id6743009621"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "package": "com.beej.amplidemo",
+      "versionCode": 1,
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "ampli"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/launch-image.png",
+          "imageResizeMode": "contain",
+          "backgroundColor": "#ffffff",
+          "dark": {
+            "image": "./assets/images/launch-image.png",
+            "imageResizeMode": "contain",
+            "backgroundColor": "#ffffff"
+          }
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "e82bc789-22d4-4edf-a0c4-cf10a578d0ba"
+      }
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "privacy": "public",
+    "description": "Ampli is a secure digital wallet app that helps you manage your finances with ease.",
+    "primaryColor": "#005BB2",
+    "githubUrl": "https://github.com/beej/ampliappdemo",
+    "owner": "beej",
+    "ownerName": "Beej Makau",
+    "contactEmail": "bjmaks@gmail.com",
+    "contactPhoneNumber": "+1 (555) 123-4567",
+    "contactName": "Beej Makau",
+    "privacyPolicyUrl": "https://ampli.money/privacy-policy.html",
+    "termsOfServiceUrl": "https://ampli.money/terms-of-service.html"
+  }
+}
