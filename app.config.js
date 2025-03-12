@@ -78,7 +78,7 @@ module.exports = {
     privyAppId: PRIVY_APP_ID,
     privyClientId: PRIVY_CLIENT_ID,
     eas: {
-      projectId: "233eed20-fe9f-4724-b6c4-b37555a55fe1"
+      projectId: "e82bc789-22d4-4edf-a0c4-cf10a578d0ba"
     }
   },
   plugins: [
