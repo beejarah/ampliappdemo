@@ -195,6 +195,15 @@ export default function AuthScreen() {
               <Text style={styles.buttonText}>Continue with Email</Text>
             )}
           </TouchableOpacity>
+
+          <View style={styles.loginOptions}>
+            <Text style={styles.loginOptionsText}>Already have an account?</Text>
+            <Link href="/(auth)/login" asChild>
+              <TouchableOpacity>
+                <Text style={styles.loginLink}>Sign In</Text>
+              </TouchableOpacity>
+            </Link>
+          </View>
         </View>
         
         {/* Terms and Privacy */}
@@ -330,5 +339,21 @@ const styles = StyleSheet.create({
   termsLink: {
     color: '#0052B4',
     fontWeight: '600',
+  },
+  loginOptions: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  loginOptionsText: {
+    fontSize: 14,
+    color: '#666666',
+  },
+  loginLink: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#0052B4',
+    marginLeft: 8,
   },
 }); 
