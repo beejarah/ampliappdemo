@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useLoginWithEmail, usePrivy, hasError } from '@privy-io/expo';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export function usePrivyEmailVerification() {
   const [isLoading, setIsLoading] = useState(false);
@@ -255,6 +256,56 @@ export function usePrivyEmailVerification() {
     return state.status;
   };
   
+  // Check if a user with this email already exists
+  const checkIfUserExists = async (email: string): Promise<boolean> => {
+    if (__DEV__) console.log('Checking if user exists for email:', email);
+    
+    try {
+      // For development testing, we can use localStorage to simulate this check
+      if (__DEV__) {
+        // Check if we have any record of this user
+        const userRecord = await AsyncStorage.getItem(`user_${email}`);
+        
+        if (userRecord) {
+          if (__DEV__) console.log('Found existing user record for email:', email);
+          return true;
+        }
+      }
+      
+      // In production, we should use the Privy API or our backend
+      // For now we'll use a simple heuristic: if loginState is in 'error' state with 
+      // an "Already logged in" message, it's probably a returning user
+      if (hasError(state) && state.error?.message?.includes('Already logged in')) {
+        if (__DEV__) console.log('Detected "Already logged in" error, treating as returning user');
+        return true;
+      }
+      
+      // For any email that has completed verification before, assume it's a returning user
+      const hasCompletedVerificationBefore = await AsyncStorage.getItem(`verified_${email}`);
+      if (hasCompletedVerificationBefore) {
+        if (__DEV__) console.log('Found verification record for email:', email);
+        return true;
+      }
+      
+      // Default to false if we can't determine
+      return false;
+    } catch (err) {
+      if (__DEV__) console.error('Error checking if user exists:', err);
+      // If there's an error, default to false (treat as new user)
+      return false;
+    }
+  };
+  
+  // Mark a user as verified (for our local tracking)
+  const markUserAsVerified = async (email: string) => {
+    try {
+      await AsyncStorage.setItem(`verified_${email}`, 'true');
+      if (__DEV__) console.log('Marked user as verified:', email);
+    } catch (err) {
+      if (__DEV__) console.error('Error marking user as verified:', err);
+    }
+  };
+  
   // Debug function to log the current state (only in development)
   const debugState = () => {
     if (__DEV__) {
@@ -278,6 +329,8 @@ export function usePrivyEmailVerification() {
     verifyCode,
     resendVerificationCode,
     authState: state.status,
-    debugState
+    debugState,
+    checkIfUserExists,
+    markUserAsVerified
   };
 } 

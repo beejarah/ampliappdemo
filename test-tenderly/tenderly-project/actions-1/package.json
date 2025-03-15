@@ -1,0 +1,19 @@
+{
+    "name": "actions-1",
+    "scripts": {
+        "build": "tsc"
+    },
+    "devDependencies": {
+        "typescript": "^4.3.5"
+    },
+    "dependencies": {
+        "@tenderly/actions": "^0.2.112"
+    },
+    "private": true,
+    "version": "1.0.0",
+    "main": "index.js",
+    "keywords": [],
+    "author": "",
+    "license": "ISC",
+    "description": ""
+}

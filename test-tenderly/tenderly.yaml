@@ -1,0 +1,13 @@
+account_id: ""
+actions:
+  thebeej/ampli-usdc-2:
+    runtime: v2
+    sources: actions-2
+    specs:
+      example:
+        description: This is just an example, but you can publish this action.
+        function: example:blockHelloWorldFn
+        trigger:
+          type: block
+        execution_type: parallel
+project_slug: ""

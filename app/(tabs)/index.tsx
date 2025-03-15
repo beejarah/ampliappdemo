@@ -1,73 +1,79 @@
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, SafeAreaView, Platform, Dimensions, Modal, Pressable } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, SafeAreaView, Platform, Dimensions, Modal, Pressable, RefreshControl, Image, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { usePrivy } from '@privy-io/expo';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '../_layout';
 import { MaterialIcons } from '@expo/vector-icons';
 import Svg, { Path } from 'react-native-svg';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useUsdcBalance } from '../../hooks/useUsdcBalance';
+import { formatCurrency } from '../../utils/formatters';
+import UsdcBalanceService, { TARGET_WALLET } from '../../utils/usdcBalanceService';
 
 // Get screen width for consistent sizing
 const { width } = Dimensions.get('window');
-const contentPadding = 24;
+const contentPadding = 20;
 const contentWidth = width - (contentPadding * 2);
 
 // Custom SVG Icons
 const HomeIcon = ({ active = false }) => (
-  <Svg width="25" height="24" viewBox="0 0 25 24" fill="none">
+  <Svg width="24" height="24" viewBox="0 0 24 24" fill="none">
     <Path 
-      d="M9.125 22V12H15.125V22M3.125 9L12.125 2L21.125 9V20C21.125 20.5304 20.9143 21.0391 20.5392 21.4142C20.1641 21.7893 19.6554 22 19.125 22H5.125C4.59457 22 4.08586 21.7893 3.71079 21.4142C3.33571 21.0391 3.125 20.5304 3.125 20V9Z" 
-      stroke={active ? "#0857A6" : "#1A1A1A"} 
-      strokeWidth="1.5" 
-      strokeLinecap="round" 
-      strokeLinejoin="round"
+      d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9z"
+      stroke={active ? "#0066CC" : "#1A1A1A"} 
+      strokeWidth="2"
+      fill={active ? "#E0F2FE" : "none"}
+    />
+    <Path 
+      d="M9 22V12h6v10"
+      stroke={active ? "#0066CC" : "#1A1A1A"} 
+      strokeWidth="2"
     />
   </Svg>
 );
 
 const DollarIcon = ({ active = false }) => (
-  <Svg width="25" height="24" viewBox="0 0 25 24" fill="none">
+  <Svg width="24" height="24" viewBox="0 0 24 24" fill="none">
     <Path 
-      d="M12.375 2V22M17.375 5H9.875C8.94674 5 8.0565 5.36875 7.40013 6.02513C6.74375 6.6815 6.375 7.57174 6.375 8.5C6.375 9.42826 6.74375 10.3185 7.40013 10.9749C8.0565 11.6313 8.94674 12 9.875 12H14.875C15.8033 12 16.6935 12.3687 17.3499 13.0251C18.0063 13.6815 18.375 14.5717 18.375 15.5C18.375 16.4283 18.0063 17.3185 17.3499 17.9749C16.6935 18.6313 15.8033 19 14.875 19H7.375" 
-      stroke={active ? "#0857A6" : "#1A1A1A"} 
-      strokeWidth="1.5" 
-      strokeLinecap="round" 
-      strokeLinejoin="round"
+      d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H7"
+      stroke={active ? "#0066CC" : "#1A1A1A"} 
+      strokeWidth="2"
+      fill={active ? "#E0F2FE" : "none"}
     />
   </Svg>
 );
 
 const ShieldIcon = ({ active = false }) => (
-  <Svg width="25" height="24" viewBox="0 0 25 24" fill="none">
+  <Svg width="24" height="24" viewBox="0 0 24 24" fill="none">
     <Path 
-      d="M20.625 5V12C20.625 16.0419 16.9946 19.1762 14.625 20.7915L12.625 22L10.8423 20.9378C8.48478 19.3703 4.625 16.1676 4.625 12V5L12.625 2L20.625 5Z" 
-      stroke={active ? "#0857A6" : "#1A1A1A"} 
-      strokeWidth="1.5" 
-      strokeLinecap="round" 
-      strokeLinejoin="round"
+      d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"
+      stroke={active ? "#0066CC" : "#1A1A1A"} 
+      strokeWidth="2"
+      fill={active ? "#E0F2FE" : "none"}
     />
   </Svg>
 );
 
 const MenuIcon = ({ active = false }) => (
-  <Svg width="25" height="24" viewBox="0 0 25 24" fill="none">
+  <Svg width="24" height="24" viewBox="0 0 24 24" fill="none">
     <Path 
-      d="M3.875 18H3.885M8.875 6H21.875M8.875 12H21.875M8.875 18H21.875M3.875 6H3.885M3.875 12H3.885" 
-      stroke={active ? "#0857A6" : "#1A1A1A"} 
-      strokeWidth="1.5" 
-      strokeLinecap="round" 
-      strokeLinejoin="round"
+      d="M4 6h16M4 12h16M4 18h16"
+      stroke={active ? "#0066CC" : "#1A1A1A"} 
+      strokeWidth="2"
     />
   </Svg>
 );
 
-export default function HomePage() {
+function HomePage() {
   const { user, logout } = usePrivy();
-  const { walletBalance, isLoading } = useAuth();
+  const { walletBalance: dummyBalance, isLoading: isDummyLoading } = useAuth();
+  // Disable automatic polling - only update when Supabase real-time event occurs
+  const { balance: usdcBalance, isLoading, refreshBalance, lastUpdated } = useUsdcBalance(0); 
   const router = useRouter();
-  const [buttonWidth, setButtonWidth] = useState(0);
   const [userInitials, setUserInitials] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastRefreshTime, setLastRefreshTime] = useState<Date | null>(null);
   
   // Load user's name from AsyncStorage and set initials
   useEffect(() => {
@@ -96,7 +102,16 @@ export default function HomePage() {
     };
     
     loadUserInitials();
+    
+    // Fetch USDC balance on load
+    refreshBalance();
   }, []);
+  
+  useEffect(() => {
+    if (lastUpdated) {
+      setLastRefreshTime(lastUpdated);
+    }
+  }, [lastUpdated]);
   
   // Log component mount
   useEffect(() => {
@@ -124,149 +139,151 @@ export default function HomePage() {
     }
   };
   
-  // Format the balance with 5 decimal places
-  const formattedBalance = Math.floor(walletBalance).toLocaleString();
-  const decimalPart = (walletBalance % 1).toFixed(5).substring(2);
+  // Navigate to USDC balance page
+  const navigateToBalancePage = () => {
+    router.push('/balance');
+  };
+  
+  // Function to handle manual refresh
+  const handleRefresh = useCallback(async () => {
+    console.log('Manually refreshing balance...');
+    setRefreshing(true);
+    try {
+      await refreshBalance();
+      setLastRefreshTime(new Date());
+    } catch (error) {
+      console.error('Error refreshing balance:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refreshBalance]);
 
-  // Function to measure the width of the Send & Receive buttons container
-  const onSendReceiveLayout = (event: { nativeEvent: { layout: { width: number } } }) => {
-    const { width } = event.nativeEvent.layout;
-    setButtonWidth(width);
+  // Format the balance with 5 decimal places
+  const balanceStr = usdcBalance.toString();
+  const wholePart = Math.floor(usdcBalance).toLocaleString();
+  
+  // Get 5 decimal places
+  const decimalPart = balanceStr.includes('.') 
+    ? balanceStr.split('.')[1].padEnd(5, '0').substring(0, 5) 
+    : '00000';
+    
+  // Format the last update time
+  const formatLastUpdateTime = () => {
+    if (!lastRefreshTime) return '';
+    
+    const now = new Date();
+    const diffMs = now.getTime() - lastRefreshTime.getTime();
+    const diffSec = Math.floor(diffMs / 1000);
+    
+    if (diffSec < 10) return 'just now';
+    if (diffSec < 60) return `${diffSec} seconds ago`;
+    
+    const diffMin = Math.floor(diffSec / 60);
+    if (diffMin < 60) return `${diffMin} minute${diffMin === 1 ? '' : 's'} ago`;
+    
+    const diffHour = Math.floor(diffMin / 60);
+    if (diffHour < 24) return `${diffHour} hour${diffHour === 1 ? '' : 's'} ago`;
+    
+    const diffDay = Math.floor(diffHour / 24);
+    return `${diffDay} day${diffDay === 1 ? '' : 's'} ago`;
+  };
+
+  // Add this function to the HomePage component
+  const handleUpdateBalance = async () => {
+    try {
+      console.log('Updating balance in Supabase...');
+      // Update with the actual transaction amount of 1.0 USDC
+      const actualBalance = 1.0;
+      const success = await UsdcBalanceService.updateBalance(TARGET_WALLET, actualBalance);
+      
+      if (success) {
+        console.log(`Successfully updated balance to ${actualBalance} USDC`);
+        // No need to call refreshBalance - the Supabase real-time subscription should trigger
+      } else {
+        console.error('Failed to update balance in Supabase');
+      }
+    } catch (error) {
+      console.error('Error updating balance:', error);
+    }
   };
 
   return (
     <SafeAreaView style={styles.container}>
       {/* Header with menu and profile */}
       <View style={styles.header}>
-        <TouchableOpacity>
-          <MaterialIcons name="menu" size={28} color="#000" />
+        <TouchableOpacity style={styles.menuButton}>
+          <MaterialIcons name="menu" size={28} color="#333" />
         </TouchableOpacity>
-        <View style={styles.profile}>
-          <TouchableOpacity 
-            style={styles.profileInitials}
-            onPress={() => setShowDropdown(!showDropdown)}
-          >
-            <Text style={styles.profileInitialsText}>{userInitials}</Text>
-          </TouchableOpacity>
-          
-          {/* Dropdown Menu */}
-          {showDropdown && (
-            <View style={styles.dropdownContainer}>
-              <View style={styles.dropdownMenu}>
-                <TouchableOpacity 
-                  style={styles.dropdownItem}
-                  onPress={handleLogout}
-                >
-                  <MaterialIcons name="logout" size={18} color="#333" />
-                  <Text style={styles.dropdownItemText}>Log out</Text>
-                </TouchableOpacity>
-              </View>
-              
-              {/* Overlay to capture touches outside the dropdown */}
-              <Pressable 
-                style={styles.overlay} 
-                onPress={() => setShowDropdown(false)}
-              />
-            </View>
-          )}
-        </View>
+        
+        <TouchableOpacity style={styles.profileButton}>
+          <View style={styles.profileImage}>
+            {userInitials ? (
+              <Text style={styles.initialsText}>{userInitials}</Text>
+            ) : (
+              <Text style={styles.initialsText}>BT</Text>
+            )}
+          </View>
+        </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        {/* Send & Receive Section - Rendered first but invisible to measure width */}
-        <View 
-          style={[styles.sendReceiveContainer, { opacity: 0, position: 'absolute' }]}
-          onLayout={onSendReceiveLayout}
-        >
-          <View style={styles.buttonsRow}>
-            <TouchableOpacity style={styles.actionButton}>
-              <Text style={styles.actionButtonText}>Send</Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity style={styles.actionButton}>
-              <Text style={styles.actionButtonText}>Receive</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* Balance Section */}
-        <View style={styles.balanceContainer}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={isLoading}
+            onRefresh={handleUpdateBalance}
+            tintColor="#6366f1"
+          />
+        }
+      >
+        <View style={styles.balanceSection}>
           <Text style={styles.balanceLabel}>Balance</Text>
-          <Text style={styles.balanceAmount}>
-            <Text style={styles.currencySymbol}>$</Text>
-            {formattedBalance}
-            <Text style={styles.cents}>.{decimalPart}</Text>
-          </Text>
           
-          <TouchableOpacity 
-            style={[
-              styles.addFundsButton, 
-              { width: buttonWidth > 0 ? buttonWidth : '100%' }
-            ]}
+          <View style={styles.balanceContainer}>
+            <Text style={styles.balanceAmount}>
+              <Text style={styles.currencySymbol}>$</Text>
+              {wholePart}
+              <Text style={styles.decimalPart}>.{decimalPart}</Text>
+            </Text>
+          </View>
+
+          <TouchableOpacity
+            style={styles.addFundsButton}
+            onPress={() => {
+              console.log('Add funds button pressed');
+              Alert.alert('Coming Soon', 'Add funds functionality will be available soon!');
+            }}
           >
+            <MaterialIcons name="add-circle-outline" size={22} color="#2563eb" />
             <Text style={styles.addFundsText}>Add funds</Text>
           </TouchableOpacity>
-        </View>
 
-        {/* Activity and Earn Cards */}
-        <View style={styles.cardsRow}>
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Activity</Text>
-            <Text style={styles.cardDescription}>
-              Activity details of your Ampli account over time with realtime analysis.
-            </Text>
-            <View style={styles.cardFooter}>
-              <Text style={styles.cardLink}>See all</Text>
-              <MaterialIcons name="chevron-right" size={20} color="#005BB2" />
-            </View>
-          </View>
-
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Earn</Text>
-            <Text style={styles.cardDescription}>
-              Refer friends, earn rewards.
-            </Text>
-            <View style={styles.cardFooter}>
-              <Text style={styles.cardLink}>Learn more</Text>
-              <MaterialIcons name="chevron-right" size={20} color="#005BB2" />
-            </View>
-          </View>
-        </View>
-
-        {/* Send & Receive Section - Visible version */}
-        <View style={styles.sendReceiveContainer}>
-          <Text style={styles.sendReceiveTitle}>Send & Receive</Text>
-          <Text style={styles.sendReceiveDescription}>
-            Instantly send or receive funds with no fees.
-          </Text>
-          
-          <View style={styles.buttonsRow}>
-            <TouchableOpacity style={styles.actionButton}>
-              <Text style={styles.actionButtonText}>Send</Text>
+          {/* Grid of feature cards */}
+          <View style={styles.featureGrid}>
+            {/* Activity card */}
+            <TouchableOpacity style={styles.featureCard}>
+              <Text style={styles.featureTitle}>Activity</Text>
+              <Text style={styles.featureDescription}>Activity details of your Ampli account over time with realtime analysis.</Text>
             </TouchableOpacity>
+
+            {/* Earn card */}
+            <TouchableOpacity style={styles.featureCard}>
+              <Text style={styles.featureTitle}>Earn</Text>
+              <Text style={styles.featureDescription}>Refer friends, earn rewards.</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Transfer funds section */}
+          <View style={styles.transferSection}>
+            <Text style={styles.sectionTitle}>Transferring funds</Text>
+            <Text style={styles.sectionDescription}>Instantly send or receive funds with no fees.</Text>
             
-            <TouchableOpacity style={styles.actionButton}>
-              <Text style={styles.actionButtonText}>Receive</Text>
+            <TouchableOpacity style={styles.sendButton}>
+              <Text style={styles.sendButtonText}>Send</Text>
             </TouchableOpacity>
           </View>
         </View>
       </ScrollView>
-
-      {/* Bottom Tab Bar */}
-      <View style={styles.tabBar}>
-        <TouchableOpacity style={styles.tabItem}>
-          <HomeIcon active={true} />
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.tabItem}>
-          <DollarIcon />
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.tabItem}>
-          <ShieldIcon />
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.tabItem}>
-          <MenuIcon />
-        </TouchableOpacity>
-      </View>
     </SafeAreaView>
   );
 }
@@ -274,203 +291,138 @@ export default function HomePage() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F8FAFC',
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 24,
+    paddingHorizontal: contentPadding,
     paddingTop: Platform.OS === 'ios' ? 10 : 20,
     paddingBottom: 10,
   },
-  profileInitials: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#F0F0F0',
-    justifyContent: 'center',
+  menuButton: {
+    padding: 8,
+  },
+  profileButton: {
+    padding: 8,
+  },
+  profileImage: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#0066CC',
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  profileInitialsText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#333',
+  initialsText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
   },
-  scrollView: {
-    flex: 1,
+  scrollContent: {
+    paddingHorizontal: contentPadding,
+    paddingBottom: 40,
   },
-  balanceContainer: {
+  balanceSection: {
     marginTop: 20,
-    marginBottom: 30,
-    marginHorizontal: 24,
-    padding: 20,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
+    marginBottom: 24,
   },
   balanceLabel: {
-    fontSize: 20,
+    fontSize: 16,
     fontWeight: '500',
     color: '#333',
-    marginBottom: 10,
+  },
+  balanceContainer: {
+    marginBottom: 16,
   },
   balanceAmount: {
-    fontSize: 48,
-    fontWeight: '600',
-    color: '#000',
-    marginBottom: 20,
+    fontSize: 40,
+    fontWeight: '700',
+    color: '#111',
+    fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
   },
   currencySymbol: {
-    fontSize: 48,
-    fontWeight: '600',
-    color: '#000',
+    fontSize: 40,
+    fontWeight: '700',
+    color: '#111',
   },
-  cents: {
-    fontSize: 32,
-    fontWeight: '400',
-    color: '#000',
+  decimalPart: {
+    fontSize: 28,
+    fontWeight: '500',
+    color: '#333',
   },
   addFundsButton: {
-    backgroundColor: '#005BB2',
-    borderRadius: 8,
-    paddingVertical: 16,
+    flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 10,
   },
   addFundsText: {
-    color: 'white',
+    marginLeft: 6,
     fontSize: 16,
-    fontWeight: '600',
-  },
-  cardsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 20,
-    paddingHorizontal: 24,
-  },
-  card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 20,
-    width: '48%',
-    borderWidth: 1,
-    borderColor: '#EEEEEE',
-  },
-  cardTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 10,
-  },
-  cardDescription: {
-    fontSize: 14,
-    color: '#555',
-    lineHeight: 20,
-    marginBottom: 15,
-    flex: 1,
-  },
-  cardFooter: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  cardLink: {
-    fontSize: 14,
     fontWeight: '500',
-    color: '#005BB2',
-    marginRight: 4,
+    color: '#0066CC',
   },
-  sendReceiveContainer: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 20,
-    marginBottom: 30,
-    borderWidth: 1,
-    borderColor: '#EEEEEE',
-    marginHorizontal: 24,
-  },
-  sendReceiveTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 10,
-  },
-  sendReceiveDescription: {
-    fontSize: 14,
-    color: '#555',
-    lineHeight: 20,
-    marginBottom: 20,
-  },
-  buttonsRow: {
+  featureGrid: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    marginBottom: 24,
   },
-  actionButton: {
-    backgroundColor: '#005BB2',
+  featureCard: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 16,
+    width: (contentWidth - 12) / 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  featureTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#111',
+    marginBottom: 8,
+  },
+  featureDescription: {
+    fontSize: 14,
+    color: '#666',
+    lineHeight: 20,
+  },
+  transferSection: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 18,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#111',
+    marginBottom: 8,
+  },
+  sectionDescription: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 16,
+    lineHeight: 20,
+  },
+  sendButton: {
+    backgroundColor: '#0066CC',
     borderRadius: 8,
-    paddingVertical: 16,
+    paddingVertical: 14,
     alignItems: 'center',
-    width: '48%',
+    justifyContent: 'center',
   },
-  actionButtonText: {
+  sendButtonText: {
     color: 'white',
     fontSize: 16,
     fontWeight: '600',
-  },
-  tabBar: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
-    borderTopWidth: 1,
-    borderTopColor: '#EEEEEE',
-    paddingVertical: 10,
-    backgroundColor: '#FFFFFF',
-  },
-  tabItem: {
-    alignItems: 'center',
-    paddingVertical: 8,
-  },
-  dropdownContainer: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 999,
-  },
-  overlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'transparent',
-  },
-  dropdownMenu: {
-    position: 'absolute',
-    top: 50,
-    right: 24,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-    zIndex: 1000,
-    width: 150,
-    paddingVertical: 8,
-    borderWidth: 1,
-    borderColor: '#F0F0F0',
-  },
-  dropdownItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-  },
-  dropdownItemText: {
-    marginLeft: 8,
-    fontSize: 14,
-    color: '#333',
   },
 });
+
+export default HomePage;

@@ -5,6 +5,7 @@ import { PrivyProvider, usePrivy } from '@privy-io/expo';
 import Constants from 'expo-constants';
 import ENV from '../env';
 import ErrorBoundary from '../components/ui/ErrorBoundary';
+import { useDevAutoLogin, isDevAutoLoginEnabled } from '../utils/devHelpers';
 
 // Get Privy App ID and Client ID from ENV
 const PRIVY_APP_ID = ENV.PRIVY_APP_ID;
@@ -20,9 +21,11 @@ if (__DEV__) {
 const AuthContext = createContext<{
   walletBalance: number;
   setWalletBalance: React.Dispatch<React.SetStateAction<number>>;
+  isLoading: boolean;
 }>({
   walletBalance: 0,
   setWalletBalance: () => {},
+  isLoading: false,
 });
 
 // Auth Provider Hook
@@ -33,6 +36,9 @@ export function useAuth() {
 // Simple wrapper to handle Privy initialization
 function PrivyInitializer({ children }: { children: React.ReactNode }) {
   const privy = usePrivy();
+  
+  // Use the development auto-login hook (only active in development mode)
+  useDevAutoLogin();
   
   // Override the default error handling to suppress all Privy-related warnings
   useEffect(() => {
@@ -91,6 +97,7 @@ function PrivyInitializer({ children }: { children: React.ReactNode }) {
 export default function RootLayout() {
   // State for wallet balance with auto-incrementing feature
   const [walletBalance, setWalletBalance] = useState(10556.9898);
+  const [isLoading, setIsLoading] = useState(false);
   
   // Auto-increment wallet balance at a rate of 10% per year
   // with updates every 0.5 seconds
@@ -137,8 +144,14 @@ export default function RootLayout() {
         appId={PRIVY_APP_ID}
         clientId={PRIVY_CLIENT_ID}
       >
-        <AuthContext.Provider value={{ walletBalance, setWalletBalance }}>
+        <AuthContext.Provider value={{ walletBalance, setWalletBalance, isLoading }}>
           <PrivyInitializer>
+            {/* Show dev mode indicator in status bar */}
+            {isDevAutoLoginEnabled() && (
+              <View style={styles.devModeIndicator}>
+                <Text style={styles.devModeText}>DEV MODE - Auto Login Enabled</Text>
+              </View>
+            )}
             <Stack screenOptions={{ 
               headerShown: false,
               animation: 'none'
@@ -193,5 +206,20 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#333333',
     marginBottom: 5,
+  },
+  devModeIndicator: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#FF6347',
+    padding: 4,
+    zIndex: 9999,
+    alignItems: 'center',
+  },
+  devModeText: {
+    color: 'white',
+    fontSize: 10,
+    fontWeight: 'bold',
   },
 });

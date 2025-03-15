@@ -125,7 +125,7 @@ export default function AuthScreen() {
     setIsLoading(true);
     
     try {
-      console.log('Attempting to login with email:', email);
+      console.log('Continue button pressed - attempting to login with email:', email);
       await login({ 
         loginMethod: 'email', 
         email,
@@ -188,6 +188,7 @@ export default function AuthScreen() {
             style={[styles.button, isLoading && styles.buttonDisabled]}
             onPress={handleSignIn}
             disabled={isLoading}
+            activeOpacity={0.7}
           >
             {isLoading ? (
               <ActivityIndicator color="#FFFFFF" />

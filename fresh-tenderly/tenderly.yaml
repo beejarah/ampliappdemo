@@ -1,0 +1,50 @@
+account_id: ""
+actions:
+  thebeej/project:
+    runtime: v2
+    sources: actions-1
+    specs:
+      # Commenting out all previous actions and approaches that fired too frequently
+      # example:
+      #   description: This is just an example, but you can publish this action.
+      #   function: example:blockHelloWorldFn
+      #   trigger:
+      #     type: block
+      #     block:
+      #       network:
+      #         - 1
+      #       blocks: 10
+      #   execution_type: parallel
+      # wallet-balance:
+      #   description: Monitor USDC transfers to specific wallet and fetch balance
+      #   function: wallet-balance:getBaseWalletBalance
+      #   trigger:
+      #     type: transaction
+      #     transaction:
+      #       status:
+      #         - mined
+      #       filters:
+      #         - network: 8453  # Base chain
+      #           to: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"  # USDC contract on Base
+      #           method: "transfer(address,uint256)" # ERC20 transfer method
+      #           inputs:
+      #             - name: "0" # First parameter of transfer is the recipient address
+      #               value: "0x2B769d40A46Bde0718f0AB1242c7d5eAe7402e71"  # Target wallet
+      #   execution_type: sequential
+      
+      # Using log filtering but relying on JS code to check for target recipient
+      usdc-monitor:
+        description: Monitor USDC transfers TO the target wallet only
+        function: usdc-monitor:monitorReceiptFilter
+        trigger:
+          type: transaction
+          transaction:
+            status:
+              - mined
+            filters:
+              - network: 8453  # Base chain
+                to: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"  # USDC contract on Base
+                # The JavaScript code will do further filtering to only process
+                # transactions where the target wallet is the recipient
+        execution_type: sequential
+project_slug: ""

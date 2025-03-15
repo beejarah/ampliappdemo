@@ -7,6 +7,8 @@ dotenv.config();
 // Get environment variables with fallbacks
 const PRIVY_APP_ID = process.env.PRIVY_APP_ID || 'cm7zekhe100pr34vmrwf36wps';
 const PRIVY_CLIENT_ID = process.env.PRIVY_CLIENT_ID || 'client-WY5hCP9Yi6c1RemTCtMUAdaAnnPUFCYgjpxbYQha8XtTK';
+const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL;
+const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 
 module.exports = {
   name: "Ampli",
@@ -77,25 +79,14 @@ module.exports = {
     // Pass environment variables to the app
     privyAppId: PRIVY_APP_ID,
     privyClientId: PRIVY_CLIENT_ID,
+    supabaseUrl: SUPABASE_URL,
+    supabaseAnonKey: SUPABASE_ANON_KEY,
     eas: {
       projectId: "e82bc789-22d4-4edf-a0c4-cf10a578d0ba"
     }
   },
   plugins: [
-    "expo-router",
-    [
-      "expo-splash-screen",
-      {
-        image: "./assets/images/launch-image.png",
-        imageResizeMode: "contain",
-        backgroundColor: "#ffffff",
-        dark: {
-          image: "./assets/images/launch-image.png",
-          imageResizeMode: "contain",
-          backgroundColor: "#ffffff"
-        }
-      }
-    ]
+    "expo-router"
   ],
   scheme: "ampli", // Used for deep linking with Privy
   // Set the port for development

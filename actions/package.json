@@ -1,0 +1,16 @@
+{
+  "name": "tenderly-actions",
+  "version": "1.0.0",
+  "description": "Tenderly actions for monitoring USDC transfers",
+  "main": "index.js",
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@tenderly/actions": "^0.2.0"
+  },
+  "devDependencies": {
+    "typescript": "^4.3.5"
+  },
+  "private": true
+} 

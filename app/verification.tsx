@@ -63,7 +63,9 @@ export default function VerificationScreen() {
     verifyCode, 
     resendVerificationCode, 
     authState,
-    debugState
+    debugState,
+    checkIfUserExists,
+    markUserAsVerified
   } = usePrivyEmailVerification();
   
   // Log debug info on mount
@@ -213,10 +215,31 @@ export default function VerificationScreen() {
           // Only dismiss keyboard on successful verification
           Keyboard.dismiss();
           
-          router.push({
-            pathname: '/create-password',
-            params: { email }
-          });
+          // Check if user already exists (returning user)
+          try {
+            // We'll add a simple check using the auth state to determine if this is a returning user
+            const isReturningUser = await checkIfUserExists(email);
+            
+            if (isReturningUser) {
+              if (__DEV__) console.log('Detected returning user, skipping password creation');
+              // Navigate directly to balance page in tabs for returning users
+              router.replace('/(tabs)');
+            } else {
+              if (__DEV__) console.log('New user detected, proceeding to create password');
+              // Navigate to create password screen for new users
+              router.push({
+                pathname: '/create-password',
+                params: { email }
+              });
+            }
+          } catch (err) {
+            if (__DEV__) console.log('Error checking user status:', err);
+            // Default to password creation flow if check fails
+            router.push({
+              pathname: '/create-password',
+              params: { email }
+            });
+          }
           return;
         }
         
@@ -233,16 +256,39 @@ export default function VerificationScreen() {
           }
           
           if (success) {
-            if (__DEV__) console.log('Verification successful, navigating to create password screen');
+            if (__DEV__) console.log('Verification successful, proceeding to next screen');
+            
+            // Mark this user as verified in our local store (for future reference)
+            await markUserAsVerified(email);
             
             // Only dismiss keyboard on successful verification
             Keyboard.dismiss();
             
-            // Navigate to create password screen with email as parameter
-            router.push({
-              pathname: '/create-password',
-              params: { email }
-            });
+            // Check if user already exists (returning user)
+            try {
+              // We'll add a simple check using the auth state to determine if this is a returning user
+              const isReturningUser = await checkIfUserExists(email);
+              
+              if (isReturningUser) {
+                if (__DEV__) console.log('Detected returning user, skipping password creation');
+                // Navigate directly to balance page in tabs for returning users
+                router.replace('/(tabs)');
+              } else {
+                if (__DEV__) console.log('New user detected, proceeding to create password');
+                // Navigate to create password screen for new users
+                router.push({
+                  pathname: '/create-password',
+                  params: { email }
+                });
+              }
+            } catch (err) {
+              if (__DEV__) console.log('Error checking user status:', err);
+              // Default to password creation flow if check fails
+              router.push({
+                pathname: '/create-password',
+                params: { email }
+              });
+            }
           } else {
             // Show inline error for incorrect code
             if (__DEV__) console.log('Verification failed with error:', error);

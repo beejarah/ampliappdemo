@@ -6,6 +6,16 @@ module.exports = function(api) {
       // Add any other plugins you need here
       '@babel/plugin-transform-export-namespace-from',
       'react-native-reanimated/plugin',
+      [
+        'module-resolver',
+        {
+          root: ['.'],
+          extensions: ['.ios.js', '.android.js', '.js', '.ts', '.tsx', '.json'],
+          alias: {
+            '@': './'
+          }
+        }
+      ]
     ],
   };
 }; 

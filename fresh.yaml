@@ -1,0 +1,26 @@
+account_id: ""
+actions:
+  thebeej/project:
+    runtime: v2
+    sources: actions-1
+    specs:
+      # Simple test action that doesn't rely on external dependencies
+      simple-test:
+        description: Basic test to verify Tenderly actions are working
+        function: simple-test:basicTestFunction
+        trigger:
+          type: periodic
+          periodic:
+            interval: 300  # Run every 5 minutes (in seconds)
+        execution_type: sequential
+        
+      # Secret test action that verifies access to Tenderly secrets
+      secret-test:
+        description: Test access to Tenderly secrets
+        function: inline-supabase:testSecrets
+        trigger:
+          type: periodic
+          periodic:
+            interval: 180  # Run every 3 minutes (in seconds)
+        execution_type: sequential
+project_slug: "" 

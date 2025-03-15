@@ -1,0 +1,35 @@
+account_id: "72f52471-5f73-46de-83b3-a94c026e4f71"
+actions:
+  thebeej/project:
+    runtime: v2
+    sources: actions
+    specs:
+      usdc-monitor:
+        description: Monitor USDC transfers to target wallet on Base chain
+        function: usdc-monitor:monitorUSDCTransfers
+        trigger:
+          type: transaction
+          transaction:
+            status:
+              - mined
+            filters:
+              - network: 8453  # Base chain
+                to: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"  # USDC contract on Base
+        execution_type: sequential
+      check-secrets:
+        description: Check if the Tenderly action can access the required secrets
+        function: check-secrets:checkSecrets
+        trigger:
+          type: periodic
+          periodic:
+            interval: 5m
+        execution_type: sequential
+      test-balance:
+        description: Test function to manually update a wallet balance
+        function: usdc-monitor:testUpdateBalance
+        trigger:
+          type: periodic
+          periodic:
+            interval: 1d
+        execution_type: sequential
+project_slug: "thebeej/project" 
