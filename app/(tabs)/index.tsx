@@ -1,7 +1,7 @@
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, SafeAreaView, Platform, Dimensions, Modal, Pressable, RefreshControl, Image, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { usePrivy } from '@privy-io/expo';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useAuth } from '../_layout';
 import { MaterialIcons } from '@expo/vector-icons';
 import Svg, { Path } from 'react-native-svg';
@@ -69,11 +69,50 @@ function HomePage() {
   const { walletBalance: dummyBalance, isLoading: isDummyLoading } = useAuth();
   // Disable automatic polling - only update when Supabase real-time event occurs
   const { balance: usdcBalance, isLoading, refreshBalance, lastUpdated } = useUsdcBalance(0); 
+  const [interestValue, setInterestValue] = useState(0);
+  const accumulatedInterestRef = useRef(0); // Track accumulated interest
   const router = useRouter();
   const [userInitials, setUserInitials] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [lastRefreshTime, setLastRefreshTime] = useState<Date | null>(null);
+  
+  // Interest calculation based on current balance
+  useEffect(() => {
+    const calculateIncrement = (balance: number) => {
+      // 10% annual rate
+      const annualRate = 0.10;
+      
+      // Calculate how much the balance should increase per update
+      // for a 10% annual increase
+      const annualIncrease = balance * annualRate;
+      
+      // Updates per year (2 updates per second * seconds in a year)
+      const updatesPerYear = 2 * 60 * 60 * 24 * 365;
+      
+      // Increase per update
+      return annualIncrease / updatesPerYear;
+    };
+    
+    const interval = setInterval(() => {
+      // Calculate the exact increment for the current balance
+      // to achieve exactly 10% annual growth
+      const increment = calculateIncrement(usdcBalance);
+      
+      // Accumulate interest
+      accumulatedInterestRef.current += increment;
+      
+      // Update the interest value state, ensuring precision
+      // Use Number instead of parseFloat to prevent scientific notation
+      setInterestValue(accumulatedInterestRef.current);
+    }, 500); // Update every 0.5 seconds
+    
+    // Reset accumulated interest when balance changes
+    accumulatedInterestRef.current = 0;
+    setInterestValue(0);
+    
+    return () => clearInterval(interval);
+  }, [usdcBalance]); // Re-run when balance changes
   
   // Load user's name from AsyncStorage and set initials
   useEffect(() => {
@@ -158,15 +197,66 @@ function HomePage() {
     }
   }, [refreshBalance]);
 
-  // Format the balance with 5 decimal places
+  // Format the balance with dynamic decimal places to always show 10 digits total
   const balanceStr = usdcBalance.toString();
-  const wholePart = Math.floor(usdcBalance).toLocaleString();
+  const wholePartValue = Math.floor(usdcBalance);
+  const wholePartStr = wholePartValue.toString();
+  const wholePartDigits = wholePartStr.length;
   
-  // Get 5 decimal places
+  // Calculate decimal places needed for total of 10 digits (10 - whole part digits)
+  const decimalPlacesToShow = Math.max(1, 10 - wholePartDigits);
+  
+  // Format whole part with commas
+  const wholePart = wholePartValue.toLocaleString();
+  
+  // Get the required decimal places
   const decimalPart = balanceStr.includes('.') 
-    ? balanceStr.split('.')[1].padEnd(5, '0').substring(0, 5) 
-    : '00000';
-    
+    ? balanceStr.split('.')[1].padEnd(decimalPlacesToShow, '0').substring(0, decimalPlacesToShow) 
+    : '0'.repeat(decimalPlacesToShow);
+  
+  // Format interest with same logic for consistency
+  const interestStr = interestValue.toString();
+  const interestWholeValue = Math.floor(interestValue);
+  const interestWholeStr = interestWholeValue.toString();
+  const interestWholeDigits = interestWholeStr.length;
+  
+  // Calculate decimal places needed for interest (10 - whole part digits)
+  const interestDecimalPlaces = Math.max(1, 10 - interestWholeDigits);
+  
+  // Format interest whole part with commas
+  const interestWholePart = interestWholeValue.toLocaleString();
+  
+  // Get the required decimal places for interest - prevent scientific notation
+  let interestDecimalPart = '0'.repeat(interestDecimalPlaces);
+  if (interestStr.includes('.')) {
+    // Convert to decimal string without scientific notation
+    const decimalStr = interestValue.toFixed(20).split('.')[1] || '';
+    interestDecimalPart = decimalStr.padEnd(interestDecimalPlaces, '0').substring(0, interestDecimalPlaces);
+  }
+  
+  // Calculate master balance (balance + interest)
+  const masterBalanceValue = usdcBalance + interestValue;
+  
+  // Format master balance with same logic for consistency
+  const masterBalanceStr = masterBalanceValue.toString();
+  const masterBalanceWholeValue = Math.floor(masterBalanceValue);
+  const masterBalanceWholeStr = masterBalanceWholeValue.toString();
+  const masterBalanceWholeDigits = masterBalanceWholeStr.length;
+  
+  // Calculate decimal places needed for master balance (10 - whole part digits)
+  const masterBalanceDecimalPlaces = Math.max(1, 10 - masterBalanceWholeDigits);
+  
+  // Format master balance whole part with commas
+  const masterBalanceWholePart = masterBalanceWholeValue.toLocaleString();
+  
+  // Get the required decimal places for master balance - prevent scientific notation
+  let masterBalanceDecimalPart = '0'.repeat(masterBalanceDecimalPlaces);
+  if (masterBalanceStr.includes('.')) {
+    // Convert to decimal string without scientific notation
+    const decimalStr = masterBalanceValue.toFixed(20).split('.')[1] || '';
+    masterBalanceDecimalPart = decimalStr.padEnd(masterBalanceDecimalPlaces, '0').substring(0, masterBalanceDecimalPlaces);
+  }
+  
   // Format the last update time
   const formatLastUpdateTime = () => {
     if (!lastRefreshTime) return '';
@@ -237,13 +327,33 @@ function HomePage() {
         }
       >
         <View style={styles.balanceSection}>
-          <Text style={styles.balanceLabel}>Balance</Text>
+          <Text style={styles.balanceLabel}>Master Balance</Text>
+          
+          <View style={styles.masterBalanceContainer}>
+            <Text style={styles.masterBalanceAmount}>
+              <Text style={styles.currencySymbol}>$</Text>
+              {masterBalanceWholePart}
+              <Text style={styles.decimalPart}>.{masterBalanceDecimalPart}</Text>
+            </Text>
+          </View>
+
+          <Text style={[styles.balanceLabel, styles.secondaryLabel]}>Wallet Balance</Text>
           
           <View style={styles.balanceContainer}>
             <Text style={styles.balanceAmount}>
               <Text style={styles.currencySymbol}>$</Text>
               {wholePart}
               <Text style={styles.decimalPart}>.{decimalPart}</Text>
+            </Text>
+          </View>
+
+          {/* Interest Display */}
+          <View style={styles.interestContainer}>
+            <Text style={styles.interestLabel}>Interest</Text>
+            <Text style={styles.interestAmount}>
+              <Text style={styles.currencySymbol}>$</Text>
+              {interestWholePart}
+              <Text style={styles.decimalPart}>.{interestDecimalPart}</Text>
             </Text>
           </View>
 
@@ -332,6 +442,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
     color: '#333',
+  },
+  secondaryLabel: {
+    marginTop: 20,
   },
   balanceContainer: {
     marginBottom: 16,
@@ -422,6 +535,30 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 16,
     fontWeight: '600',
+  },
+  interestContainer: {
+    marginBottom: 16,
+  },
+  interestLabel: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#333',
+    marginBottom: 4,
+  },
+  interestAmount: {
+    fontSize: 32,
+    fontWeight: '600',
+    color: '#4CAF50', // Green color for interest
+    fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
+  },
+  masterBalanceContainer: {
+    marginBottom: 16,
+  },
+  masterBalanceAmount: {
+    fontSize: 44,
+    fontWeight: '800',
+    color: '#111',
+    fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
   },
 });
 
