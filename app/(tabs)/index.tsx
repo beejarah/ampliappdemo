@@ -10,6 +10,11 @@ import { useUsdcBalance } from '../../hooks/useUsdcBalance';
 import { formatCurrency } from '../../utils/formatters';
 import UsdcBalanceService, { TARGET_WALLET } from '../../utils/usdcBalanceService';
 
+// Define webhook URL for Tenderly Web3 Action (will be configured later)
+const TENDERLY_WEBHOOK_URL = 'https://api.tenderly.co/api/v1/actions-gateway/webhook/YOUR_WEBHOOK_ID';
+// Mock Send Wallet address (replace with actual wallet address)
+const SEND_WALLET = '0xYourSendWalletAddressHere';
+
 // Get screen width for consistent sizing
 const { width } = Dimensions.get('window');
 const contentPadding = 20;
@@ -297,6 +302,60 @@ function HomePage() {
     }
   };
 
+  // Function to trigger Tenderly Web3 Action webhook for withdrawing all USDC
+  const withdrawAllFunds = async () => {
+    try {
+      console.log('Initiating withdrawal via Tenderly Web3 Action...');
+      console.log(`From: ${TARGET_WALLET} to ${SEND_WALLET}`);
+      
+      // In production, this would be an actual API call to Tenderly
+      // For now, we'll simulate the process
+      
+      // Prepare the webhook payload
+      const payload = {
+        sourceWallet: TARGET_WALLET,
+        destinationWallet: SEND_WALLET,
+        amount: 'all', // Withdraw all USDC
+        timestamp: new Date().toISOString()
+      };
+      
+      // For development, log the payload that would be sent
+      console.log('Webhook payload:', JSON.stringify(payload, null, 2));
+      
+      /* 
+      // Uncomment this code when Tenderly webhook is configured
+      const response = await fetch(TENDERLY_WEBHOOK_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload)
+      });
+      
+      const data = await response.json();
+      console.log('Tenderly response:', data);
+      
+      if (response.ok) {
+        // Update UI or show success message
+        console.log('Withdrawal initiated successfully');
+        return true;
+      } else {
+        console.error('Failed to initiate withdrawal:', data);
+        return false;
+      }
+      */
+      
+      // For development, simulate a successful response
+      console.log('Simulated successful withdrawal initiation');
+      // In production, we'd refresh the balance after confirmation
+      // setTimeout(() => refreshBalance(), 5000); 
+      return true;
+    } catch (error) {
+      console.error('Error initiating withdrawal:', error);
+      return false;
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       {/* Header with menu and profile */}
@@ -366,6 +425,41 @@ function HomePage() {
           >
             <MaterialIcons name="add-circle-outline" size={22} color="#2563eb" />
             <Text style={styles.addFundsText}>Add funds</Text>
+          </TouchableOpacity>
+
+          {/* Withdraw All button */}
+          <TouchableOpacity
+            style={styles.withdrawAllButton}
+            onPress={() => {
+              console.log('Withdraw All button pressed');
+              Alert.alert(
+                'Withdraw All',
+                'Are you sure you want to withdraw all USDC from your account?',
+                [
+                  {
+                    text: 'Cancel',
+                    style: 'cancel',
+                  },
+                  {
+                    text: 'Withdraw',
+                    onPress: () => {
+                      console.log('Withdraw confirmed - will trigger Tenderly Web3 Action');
+                      // Call the function to trigger Tenderly webhook
+                      withdrawAllFunds().then(success => {
+                        if (success) {
+                          Alert.alert('Processing', 'Withdrawal request has been submitted. Your balance will update shortly.');
+                        } else {
+                          Alert.alert('Error', 'Failed to initiate withdrawal. Please try again later.');
+                        }
+                      });
+                    },
+                  },
+                ]
+              );
+            }}
+          >
+            <MaterialIcons name="account-balance-wallet" size={22} color="#f97316" />
+            <Text style={styles.withdrawAllText}>Withdraw All</Text>
           </TouchableOpacity>
 
           {/* Grid of feature cards */}
@@ -474,6 +568,18 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
     color: '#0066CC',
+  },
+  withdrawAllButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 12,
+    marginBottom: 20,
+  },
+  withdrawAllText: {
+    marginLeft: 6,
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#f97316', // Orange color
   },
   featureGrid: {
     flexDirection: 'row',
