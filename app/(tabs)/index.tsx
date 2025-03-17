@@ -13,20 +13,17 @@ import UsdcBalanceService, { TARGET_WALLET, INTEREST_WALLET, ORIGIN_WALLET } fro
 
 // Tenderly Web3 Actions configuration
 const TENDERLY_ACCOUNT = 'thebeej';
-const TENDERLY_PROJECT = 'project'; // TODO: Verify this is the correct project name
-const TENDERLY_API_KEY = 'xdq0bEB5o3hhdyI70Akm1sTXCqYOuwli'; // Use the API key from TENDERLY_SETUP.md
+const TENDERLY_PROJECT = 'project';
+const TENDERLY_API_KEY = 'xdq0bEB5o3hhdyI70Akm1sTXCqYOuwli';
 
-// Updated IDs from your most recent deployment using IDs from TENDERLY_SETUP.md
-const BALANCE_ACTION_ID = 'dda57d54-33b6-4f05-bcb1-cb23508668dd'; // Balance action ID from docs
-const INTEREST_ACTION_ID = 'd434bd21-f36a-4e70-ae68-d211ac1078aa'; // Interest action ID from docs
+// IMPORTANT: Use the correct combo action ID as specified
+const COMBO_ACTION_ID = '235de538-7869-4ff3-9918-b2dec1496522';
 
-// Using Tenderly webhook URLs for actions - confirmed working format from docs
-const BALANCE_WEBHOOK_URL = `https://api.tenderly.co/api/v1/actions/${BALANCE_ACTION_ID}/webhook`;
-const INTEREST_WEBHOOK_URL = `https://api.tenderly.co/api/v1/actions/${INTEREST_ACTION_ID}/webhook`;
+// Only use the combo webhook URL - this is the one that matters
+const COMBO_WEBHOOK_URL = `https://api.tenderly.co/api/v1/actions/${COMBO_ACTION_ID}/webhook`;
 
-// Direct API endpoints for checking execution results
-const BALANCE_EXECUTIONS_URL = `https://api.tenderly.co/api/v1/account/${TENDERLY_ACCOUNT}/project/${TENDERLY_PROJECT}/actions/${BALANCE_ACTION_ID}/executions`;
-const INTEREST_EXECUTIONS_URL = `https://api.tenderly.co/api/v1/account/${TENDERLY_ACCOUNT}/project/${TENDERLY_PROJECT}/actions/${INTEREST_ACTION_ID}/executions`;
+// For checking execution results
+const EXECUTIONS_URL = `https://api.tenderly.co/api/v1/account/${TENDERLY_ACCOUNT}/project/${TENDERLY_PROJECT}/actions/${COMBO_ACTION_ID}/executions`;
 
 // Flag to force using real Tenderly API calls even in development mode
 const USE_REAL_TENDERLY_API = true;
@@ -470,79 +467,92 @@ const HomePage = memo(function HomePage() {
         // API details log
         console.log('👉 Account: ' + TENDERLY_ACCOUNT);
         console.log('👉 Project: ' + TENDERLY_PROJECT);
-        console.log('👉 Balance Action ID: ' + BALANCE_ACTION_ID);
-        console.log('👉 Balance Webhook URL: ' + BALANCE_WEBHOOK_URL);
+        console.log('👉 Combo Action ID: ' + COMBO_ACTION_ID);
+        console.log('👉 Combo Webhook URL: ' + COMBO_WEBHOOK_URL);
         
         // Prepare headers and payload exactly as in the working example from TENDERLY_SETUP.md
-        const balanceHeaders = {
+        const comboHeaders = {
           'Content-Type': 'application/json',
           'X-Access-Key': TENDERLY_API_KEY,
           'Authorization': `Bearer ${TENDERLY_API_KEY}`
         };
         
-        // From the TENDERLY_SETUP.md example that worked previously
-        const balancePayload = {
-          sourceWallet: TARGET_WALLET,
-          destinationWallet: ORIGIN_WALLET,
-          amount: 'all',
-          type: 'balance',
-          timestamp: new Date().toISOString()
+        // Prepare a FLATTENED payload structure exactly as expected by the combo function
+        // For interest, we'll use a direct amount with buffer
+        const interestAmountWithBuffer = interestValue + 0.01;
+        
+        const comboPayload = {
+          // Common fields
+          timestamp: new Date().toISOString(),
+          
+          // Balance withdrawal fields - use prefix to distinguish
+          balanceSourceWallet: TARGET_WALLET,
+          balanceDestinationWallet: ORIGIN_WALLET,
+          balanceAmount: 'all',
+          balanceType: 'balance',
+          
+          // Interest withdrawal fields - use prefix to distinguish
+          interestSourceWallet: INTEREST_WALLET,
+          interestDestinationWallet: ORIGIN_WALLET,
+          interestAmount: interestAmountWithBuffer.toString(),
+          interestExactAmount: true,
+          interestType: 'interest'
         };
         
-        console.log('🚀 Calling balance webhook with payload:', JSON.stringify(balancePayload));
+        console.log('🚀 Calling combo webhook with payload:', JSON.stringify(comboPayload));
         
         // Make the webhook call
-        const balanceResponse = await fetch(BALANCE_WEBHOOK_URL, {
+        const comboResponse = await fetch(COMBO_WEBHOOK_URL, {
           method: 'POST',
-          headers: balanceHeaders,
-          body: JSON.stringify(balancePayload)
+          headers: comboHeaders,
+          body: JSON.stringify(comboPayload)
         });
         
-        console.log('📋 Balance webhook response status:', balanceResponse.status);
-        let balanceResponseText = '';
+        console.log('📋 Combo webhook response status:', comboResponse.status);
+        let comboResponseText = '';
         
         try {
-          balanceResponseText = await balanceResponse.text();
-          console.log('📋 Balance webhook response body:', balanceResponseText);
+          comboResponseText = await comboResponse.text();
+          console.log('📋 Combo webhook response body:', comboResponseText);
         } catch (e) {
           console.log('❌ Failed to get response text:', e);
         }
         
-        if (!balanceResponse.ok) {
-          console.error('❌ Balance withdrawal failed with status:', balanceResponse.status);
+        if (!comboResponse.ok) {
+          console.error('❌ Combo withdrawal failed with status:', comboResponse.status);
           return false;
         }
         
-        let balanceResponseData = null;
+        let comboResponseData = null;
         try {
-          balanceResponseData = balanceResponseText ? JSON.parse(balanceResponseText) : {};
-          console.log('📊 Parsed balance response data:', balanceResponseData);
+          comboResponseData = comboResponseText ? JSON.parse(comboResponseText) : {};
+          console.log('📊 Parsed combo response data:', comboResponseData);
         } catch (e) {
           console.log('⚠️ Could not parse response as JSON, continuing anyway');
         }
         
         // Log execution ID if available
-        const balanceExecutionId = balanceResponseData?.executionId;
-        if (balanceExecutionId) {
-          console.log('🆔 Got balance execution ID:', balanceExecutionId);
+        const comboExecutionId = comboResponseData?.executionId;
+        if (comboExecutionId) {
+          console.log('🆔 Got combo execution ID:', comboExecutionId);
         }
         
         // Step 2: Wait for action to process (3 seconds)
         console.log('=============================================');
-        console.log('STEP 2: WAITING FOR BALANCE PROCESSING');
+        console.log('STEP 2: WAITING FOR COMBO PROCESSING');
         console.log('=============================================');
-        console.log('⏳ Waiting 3 seconds for balance transaction to process...');
+        console.log('⏳ Waiting 3 seconds for combo transaction to process...');
         await new Promise(resolve => setTimeout(resolve, 3000));
         
         // Step 3: Check for execution results
         console.log('=============================================');
-        console.log('STEP 3: CHECKING BALANCE EXECUTION');
+        console.log('STEP 3: CHECKING COMBO EXECUTION');
         console.log('=============================================');
-        console.log('🔍 Checking balance execution at:', BALANCE_EXECUTIONS_URL);
+        console.log('🔍 Checking combo execution at:', EXECUTIONS_URL);
         
         // Using the execution with only Authorization header
         try {
-          const executionsResponse = await fetch(`${BALANCE_EXECUTIONS_URL}?page=1&per_page=1`, {
+          const executionsResponse = await fetch(`${EXECUTIONS_URL}?page=1&per_page=1`, {
             method: 'GET',
             headers: {
               'Content-Type': 'application/json',
@@ -563,7 +573,7 @@ const HomePage = memo(function HomePage() {
               
               // Log transactions if any
               if (execution.transactions && execution.transactions.length > 0) {
-                execution.transactions.forEach((tx, index) => {
+                execution.transactions.forEach((tx: any, index: number) => {
                   console.log(`📝 Transaction ${index + 1}:`, tx.hash, 'Status:', tx.status);
                 });
               } else {
@@ -577,7 +587,7 @@ const HomePage = memo(function HomePage() {
               
               // Log specific logs if available
               if (execution.logs) {
-                execution.logs.forEach((log, index) => {
+                execution.logs.forEach((log: any, index: number) => {
                   if (log.level === 'error') {
                     console.error(`❌ Log ${index + 1}:`, log.message);
                   } else {
@@ -595,110 +605,26 @@ const HomePage = memo(function HomePage() {
           console.error('❌ Error checking executions:', e);
         }
         
-        // Step 4: Interest Withdrawal (if interest > 0)
+        // Step 4: Reset interest and record withdrawal
         console.log('=============================================');
-        console.log('STEP 4: INTEREST WITHDRAWAL');
-        console.log('=============================================');
-        
-        let interestSuccess = false;
-        
-        if (interestValue > 0) {
-          console.log('👉 Interest to withdraw:', interestValue);
-          console.log('👉 Interest Action ID:', INTEREST_ACTION_ID);
-          console.log('👉 Interest Webhook URL:', INTEREST_WEBHOOK_URL);
-          
-          // Prepare headers and payload for interest withdrawal
-          const interestHeaders = {
-            'Content-Type': 'application/json',
-            'X-Access-Key': TENDERLY_API_KEY,
-            'Authorization': `Bearer ${TENDERLY_API_KEY}`
-          };
-          
-          // Add buffer to interest amount and use exact format from TENDERLY_SETUP.md
-          const interestAmountWithBuffer = interestValue + 0.01;
-          const interestPayload = {
-            sourceWallet: INTEREST_WALLET,
-            destinationWallet: ORIGIN_WALLET,
-            amount: interestAmountWithBuffer.toString(),
-            type: 'interest',
-            timestamp: new Date().toISOString()
-          };
-          
-          console.log('🚀 Calling interest webhook with payload:', JSON.stringify(interestPayload));
-          
-          // Make the webhook call
-          const interestResponse = await fetch(INTEREST_WEBHOOK_URL, {
-            method: 'POST',
-            headers: interestHeaders,
-            body: JSON.stringify(interestPayload)
-          });
-          
-          console.log('📋 Interest webhook response status:', interestResponse.status);
-          let interestResponseText = '';
-          
-          try {
-            interestResponseText = await interestResponse.text();
-            console.log('📋 Interest webhook response body:', interestResponseText);
-          } catch (e) {
-            console.log('❌ Failed to get interest response text:', e);
-          }
-          
-          if (!interestResponse.ok) {
-            console.error('❌ Interest withdrawal failed with status:', interestResponse.status);
-          } else {
-            interestSuccess = true;
-            // Wait for interest action to process
-            console.log('⏳ Waiting 2 seconds for interest transaction to process...');
-            await new Promise(resolve => setTimeout(resolve, 2000));
-            
-            // Check interest execution
-            console.log('🔍 Checking interest execution at:', INTEREST_EXECUTIONS_URL);
-            try {
-              const interestExecutionsResponse = await fetch(`${INTEREST_EXECUTIONS_URL}?page=1&per_page=1`, {
-                method: 'GET',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${TENDERLY_API_KEY}`
-                }
-              });
-              
-              if (interestExecutionsResponse.ok) {
-                const interestExecutionsData = await interestExecutionsResponse.json();
-                if (interestExecutionsData.executions && interestExecutionsData.executions.length > 0) {
-                  const execution = interestExecutionsData.executions[0];
-                  console.log('📝 Latest interest execution ID:', execution.id);
-                  console.log('📝 Interest execution status:', execution.status);
-                }
-              }
-            } catch (e) {
-              console.error('❌ Error checking interest executions:', e);
-            }
-          }
-        } else {
-          console.log('ℹ️ No interest to withdraw, skipping interest withdrawal');
-          interestSuccess = true;
-        }
-        
-        // Step 5: Reset interest and record withdrawal
-        console.log('=============================================');
-        console.log('STEP 5: RESET INTEREST & UPDATE DATABASE');
+        console.log('STEP 4: RESET INTEREST & UPDATE DATABASE');
         console.log('=============================================');
         console.log('✏️ Recording withdrawal and resetting interest...');
         
         await resetInterestAfterWithdrawal();
         await registerWithdrawal();
         
-        // Step 6: Force UI update
+        // Step 5: Force UI update
         console.log('=============================================');
-        console.log('STEP 6: UPDATE UI');
+        console.log('STEP 5: UPDATE UI');
         console.log('=============================================');
         console.log('🖥️ Forcing UI update with zero balance...');
         
         forceBalanceUpdate(0, 0);
         
-        // Step 7: Refresh from database
+        // Step 6: Refresh from database
         console.log('=============================================');
-        console.log('STEP 7: REFRESH FROM DATABASE');
+        console.log('STEP 6: REFRESH FROM DATABASE');
         console.log('=============================================');
         console.log('🔄 Refreshing balance from Supabase...');
         
