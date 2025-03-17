@@ -27,7 +27,7 @@ const INTEREST_WEBHOOK_URL = `https://api.tenderly.co/api/v1/actions/${INTEREST_
 const COMBO_WEBHOOK_URL = `https://api.tenderly.co/api/v1/actions/${COMBO_ACTION_ID}/webhook`;
 
 // Flag to force using real Tenderly API calls even in development mode
-const USE_REAL_TENDERLY_API = false; // Set to false to use mock withdrawals in development
+const USE_REAL_TENDERLY_API = false;
 
 // Constants
 const PAGE_SIZE = 6;
@@ -529,7 +529,11 @@ const HomePage = memo(function HomePage() {
             // Construct URL for the Tenderly API
             const executionsUrl = `https://api.tenderly.co/api/v1/account/${TENDERLY_ACCOUNT}/project/${TENDERLY_PROJECT}/actions/${COMBO_ACTION_ID}/executions?page=1&per_page=1`;
             
-            console.log('Checking execution results URL:', executionsUrl);
+            // Debug output for the URL and credentials
+            console.log('⚠️ Fetching Tenderly executions from URL:', executionsUrl);
+            console.log('⚠️ Using account:', TENDERLY_ACCOUNT);
+            console.log('⚠️ Using project:', TENDERLY_PROJECT);
+            console.log('⚠️ Using action ID:', COMBO_ACTION_ID);
             
             // Fetch the most recent execution
             const executionsResponse = await fetch(executionsUrl, {
@@ -540,21 +544,24 @@ const HomePage = memo(function HomePage() {
               }
             });
             
-            if (executionsResponse.status === 404) {
-              console.log('Execution results not found (404) - this may be due to incorrect account/project/action IDs or invalid API key');
-              console.log('Continuing with withdrawal process without checking execution results');
-              
-              // Still record withdrawal and update UI even if we can't verify the execution
-              await resetInterestAfterWithdrawal();
-              await registerWithdrawal();
-            } 
-            else if (!executionsResponse.ok) {
-              console.error('Failed to fetch execution results. Status:', executionsResponse.status);
-              console.log('Continuing with withdrawal process without checking execution results');
-              
-              // Still record withdrawal and update UI even if we can't verify the execution
-              await resetInterestAfterWithdrawal();
-              await registerWithdrawal();
+            if (!executionsResponse.ok) {
+              if (executionsResponse.status === 404) {
+                console.error('⚠️ 404 Not Found when fetching Tenderly execution results. Possible causes:');
+                console.error('  - Incorrect account name or project name');
+                console.error('  - Action ID is invalid or doesn\'t exist');
+                console.error('  - API key doesn\'t have access to this action');
+                console.error('  - No executions exist yet for this action');
+                
+                // Allow the withdrawal to continue even if we can't verify the execution
+                console.log('Continuing with withdrawal process without execution verification...');
+                
+                // Since we can't verify the execution, we'll assume success to give immediate UI feedback
+                // The actual transaction confirmation will happen via other mechanisms
+                balanceSuccess = true;
+                interestSuccess = true;
+              } else {
+                console.error('Failed to fetch execution results. Status:', executionsResponse.status);
+              }
             } else {
               const executionsData = await executionsResponse.json();
               
@@ -592,21 +599,10 @@ const HomePage = memo(function HomePage() {
                     }
                   }
                 }
-              } else {
-                console.log('No executions found in response - proceeding without execution results');
-                
-                // Still record withdrawal and update UI even if no executions found
-                await resetInterestAfterWithdrawal();
-                await registerWithdrawal();
               }
             }
           } catch (error: any) {
             console.error('Error fetching execution results:', error);
-            console.log('Continuing with withdrawal process despite error');
-            
-            // Still record withdrawal and update UI even if there was an error
-            await resetInterestAfterWithdrawal();
-            await registerWithdrawal();
           }
           
           // Check for blockchain confirmations if we got transaction hashes
