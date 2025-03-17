@@ -14,7 +14,7 @@ import UsdcBalanceService, { TARGET_WALLET, INTEREST_WALLET, ORIGIN_WALLET } fro
 // Tenderly Web3 Actions configuration
 const TENDERLY_ACCOUNT = 'thebeej';
 const TENDERLY_PROJECT = 'project'; // TODO: Verify this is the correct project name
-const TENDERLY_API_KEY = 'xdq0bEB5o3hhdyI70Akm1sTXCqYOuwli'; // TODO: This API key is invalid - generate a new one
+const TENDERLY_API_KEY = 'Thv8HwQZOUX3k9SfeTHE1nWHlpez0J3f'; // New API key provided by the user
 
 // Updated IDs from your most recent deployment
 const BALANCE_ACTION_ID = 'dda57d54-33b6-4f05-bcb1-cb23508668dd'; // Old balance action ID
@@ -27,7 +27,7 @@ const INTEREST_WEBHOOK_URL = `https://api.tenderly.co/api/v1/actions/${INTEREST_
 const COMBO_WEBHOOK_URL = `https://api.tenderly.co/api/v1/actions/${COMBO_ACTION_ID}/webhook`;
 
 // Flag to force using real Tenderly API calls even in development mode
-const USE_REAL_TENDERLY_API = false;
+const USE_REAL_TENDERLY_API = true;
 
 // Constants
 const PAGE_SIZE = 6;
@@ -216,12 +216,12 @@ const HomePage = memo(function HomePage() {
         }
         
         if (isMounted) {
-          setUserInitials(initials || 'BT');
+        setUserInitials(initials || 'BT');
         }
       } catch (error) {
         console.error('Error loading user initials:', error);
         if (isMounted) {
-          setUserInitials('BT');
+        setUserInitials('BT');
         }
       }
     };
@@ -246,7 +246,7 @@ const HomePage = memo(function HomePage() {
       
       // Create new timeout
       lastUpdatedTimeoutRef.current = setTimeout(() => {
-        setLastRefreshTime(lastUpdated);
+      setLastRefreshTime(lastUpdated);
         lastUpdatedTimeoutRef.current = null;
       }, 1000); // Longer debounce for less frequent updates
     }
@@ -678,13 +678,13 @@ const HomePage = memo(function HomePage() {
 
   return (
     <ErrorBoundary>
-      <SafeAreaView style={styles.container}>
-        {/* Header with menu and profile */}
-        <View style={styles.header}>
-          <TouchableOpacity style={styles.menuButton}>
-            <MaterialIcons name="menu" size={28} color="#333" />
-          </TouchableOpacity>
-          
+    <SafeAreaView style={styles.container}>
+      {/* Header with menu and profile */}
+      <View style={styles.header}>
+        <TouchableOpacity style={styles.menuButton}>
+          <MaterialIcons name="menu" size={28} color="#333" />
+        </TouchableOpacity>
+        
           <TouchableOpacity style={styles.profileButton}>
             <View style={styles.profileImage}>
               {userInitials ? (
@@ -693,20 +693,20 @@ const HomePage = memo(function HomePage() {
                 <Text style={styles.initialsText}>BT</Text>
               )}
             </View>
-          </TouchableOpacity>
-        </View>
+        </TouchableOpacity>
+      </View>
 
-        <ScrollView 
+      <ScrollView 
           contentContainerStyle={styles.scrollContent}
-          refreshControl={
-            <RefreshControl
+        refreshControl={
+          <RefreshControl
               refreshing={isLoading}
-              onRefresh={handleRefresh}
+            onRefresh={handleRefresh}
               tintColor="#6366f1"
-            />
-          }
-        >
-          <View style={styles.balanceSection}>
+          />
+        }
+      >
+        <View style={styles.balanceSection}>
             <Text style={styles.balanceLabel}>Master Balance</Text>
             
             <View style={styles.masterBalanceContainer}>
@@ -714,18 +714,18 @@ const HomePage = memo(function HomePage() {
                 <Text style={styles.currencySymbol}>$</Text>
                 {masterBalanceWholePart}
                 <Text style={styles.decimalPart}>.{masterBalanceDecimalPart}</Text>
-                </Text>
+              </Text>
             </View>
 
             <Text style={[styles.balanceLabel, styles.secondaryLabel]}>Wallet Balance</Text>
             
             <View style={styles.balanceContainer}>
-                <Text style={styles.balanceAmount}>
-                  <Text style={styles.currencySymbol}>$</Text>
-                  {wholePart}
-                  <Text style={styles.decimalPart}>.{decimalPart}</Text>
-                </Text>
-              </View>
+              <Text style={styles.balanceAmount}>
+                <Text style={styles.currencySymbol}>$</Text>
+                {wholePart}
+                <Text style={styles.decimalPart}>.{decimalPart}</Text>
+              </Text>
+            </View>
 
             {/* Interest Display */}
             <View style={styles.interestContainer}>
@@ -736,17 +736,17 @@ const HomePage = memo(function HomePage() {
                 <Text style={styles.decimalPart}>.{interestDecimalPart}</Text>
               </Text>
             </View>
-            
-            <TouchableOpacity 
-              style={styles.addFundsButton}
+          
+          <TouchableOpacity 
+            style={styles.addFundsButton}
               onPress={() => {
                 console.log('Add funds button pressed');
                 Alert.alert('Coming Soon', 'Add funds functionality will be available soon!');
               }}
-            >
+          >
               <MaterialIcons name="add-circle-outline" size={22} color="#2563eb" />
-              <Text style={styles.addFundsText}>Add funds</Text>
-            </TouchableOpacity>
+            <Text style={styles.addFundsText}>Add funds</Text>
+          </TouchableOpacity>
 
             {/* Withdraw All button */}
             <TouchableOpacity 
@@ -788,20 +788,20 @@ const HomePage = memo(function HomePage() {
                 <Text style={styles.featureTitle}>Earn</Text>
                 <Text style={styles.featureDescription}>Refer friends, earn rewards.</Text>
               </TouchableOpacity>
-            </View>
+        </View>
 
             {/* Transfer funds section */}
-            <View style={styles.transferSection}>
+        <View style={styles.transferSection}>
               <Text style={styles.sectionTitle}>Transferring funds</Text>
               <Text style={styles.sectionDescription}>Instantly send or receive funds with no fees.</Text>
-              
-              <TouchableOpacity style={styles.sendButton}>
-                <Text style={styles.sendButtonText}>Send</Text>
-            </TouchableOpacity>
+          
+          <TouchableOpacity style={styles.sendButton}>
+            <Text style={styles.sendButtonText}>Send</Text>
+          </TouchableOpacity>
             </View>
-          </View>
-        </ScrollView>
-      </SafeAreaView>
+        </View>
+      </ScrollView>
+    </SafeAreaView>
     </ErrorBoundary>
   );
 });
