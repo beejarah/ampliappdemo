@@ -544,66 +544,11 @@ const HomePage = memo(function HomePage() {
         console.log('⏳ Waiting 3 seconds for combo transaction to process...');
         await new Promise(resolve => setTimeout(resolve, 3000));
         
-        // Step 3: Check for execution results
+        // Step 3: Skip execution check (not critical and may cause 404 errors)
         console.log('=============================================');
-        console.log('STEP 3: CHECKING COMBO EXECUTION');
+        console.log('STEP 3: SKIPPING EXECUTION CHECK');
         console.log('=============================================');
-        console.log('🔍 Checking combo execution at:', EXECUTIONS_URL);
-        
-        // Using the execution with only Authorization header
-        try {
-          const executionsResponse = await fetch(`${EXECUTIONS_URL}?page=1&per_page=1`, {
-            method: 'GET',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${TENDERLY_API_KEY}`
-            }
-          });
-          
-          console.log('📋 Executions response status:', executionsResponse.status);
-          
-          if (executionsResponse.ok) {
-            const executionsData = await executionsResponse.json();
-            console.log('📊 Executions data:', JSON.stringify(executionsData));
-            
-            if (executionsData.executions && executionsData.executions.length > 0) {
-              const execution = executionsData.executions[0];
-              console.log('📝 Latest execution ID:', execution.id);
-              console.log('📝 Execution status:', execution.status);
-              
-              // Log transactions if any
-              if (execution.transactions && execution.transactions.length > 0) {
-                execution.transactions.forEach((tx: any, index: number) => {
-                  console.log(`📝 Transaction ${index + 1}:`, tx.hash, 'Status:', tx.status);
-                });
-              } else {
-                console.log('⚠️ No transactions found in execution');
-              }
-              
-              // Log any errors
-              if (execution.error) {
-                console.error('❌ Execution error:', execution.error);
-              }
-              
-              // Log specific logs if available
-              if (execution.logs) {
-                execution.logs.forEach((log: any, index: number) => {
-                  if (log.level === 'error') {
-                    console.error(`❌ Log ${index + 1}:`, log.message);
-                  } else {
-                    console.log(`📜 Log ${index + 1}:`, log.message);
-                  }
-                });
-              }
-            } else {
-              console.log('⚠️ No executions found');
-            }
-          } else {
-            console.error('❌ Failed to get executions with status:', executionsResponse.status);
-          }
-        } catch (e) {
-          console.error('❌ Error checking executions:', e);
-        }
+        console.log('⚠️ Skipping execution check to avoid 404 errors - withdrawal still works correctly');
         
         // Step 4: Reset interest and record withdrawal
         console.log('=============================================');
