@@ -1,17 +1,37 @@
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, SafeAreaView, Platform, Dimensions, Modal, Pressable, RefreshControl, Image, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, SafeAreaView, Platform, Dimensions, Modal, Pressable, RefreshControl, Image, Alert, AppState, AppStateStatus } from 'react-native';
 import { useRouter } from 'expo-router';
 import { usePrivy } from '@privy-io/expo';
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, memo } from 'react';
+import React from 'react';
 import { useAuth } from '../_layout';
 import { MaterialIcons } from '@expo/vector-icons';
 import Svg, { Path } from 'react-native-svg';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useUsdcBalance } from '../../hooks/useUsdcBalance';
 import { formatCurrency } from '../../utils/formatters';
-import UsdcBalanceService, { TARGET_WALLET } from '../../utils/usdcBalanceService';
+import UsdcBalanceService, { TARGET_WALLET, INTEREST_WALLET, ORIGIN_WALLET } from '../../utils/usdcBalanceService';
 
-// Define webhook URL for Tenderly Web3 Action (will be configured later)
-const TENDERLY_WEBHOOK_URL = 'https://api.tenderly.co/api/v1/actions-gateway/webhook/YOUR_WEBHOOK_ID';
+// Tenderly Web3 Actions configuration
+const TENDERLY_ACCOUNT = 'thebeej';
+const TENDERLY_PROJECT = 'project'; // TODO: Verify this is the correct project name
+const TENDERLY_API_KEY = 'xdq0bEB5o3hhdyI70Akm1sTXCqYOuwli'; // TODO: This API key is invalid - generate a new one
+
+// Updated IDs from your most recent deployment
+const BALANCE_ACTION_ID = 'dda57d54-33b6-4f05-bcb1-cb23508668dd'; // Old balance action ID
+const INTEREST_ACTION_ID = 'd434bd21-f36a-4e70-ae68-d211ac1078aa'; // Old interest action ID
+const COMBO_ACTION_ID = '235de538-7869-4ff3-9918-b2dec1496522'; // TODO: Verify this is the correct combo_withdrawal action ID
+
+// Using Tenderly webhook URLs for actions - confirmed working format
+const BALANCE_WEBHOOK_URL = `https://api.tenderly.co/api/v1/actions/${BALANCE_ACTION_ID}/webhook`;
+const INTEREST_WEBHOOK_URL = `https://api.tenderly.co/api/v1/actions/${INTEREST_ACTION_ID}/webhook`;
+const COMBO_WEBHOOK_URL = `https://api.tenderly.co/api/v1/actions/${COMBO_ACTION_ID}/webhook`;
+
+// Flag to force using real Tenderly API calls even in development mode
+const USE_REAL_TENDERLY_API = true;
+
+// Constants
+const PAGE_SIZE = 6;
+
 // Mock Send Wallet address (replace with actual wallet address)
 const SEND_WALLET = '0xYourSendWalletAddressHere';
 
@@ -69,58 +89,115 @@ const MenuIcon = ({ active = false }) => (
   </Svg>
 );
 
-function HomePage() {
+// Create a basic error boundary component
+interface ErrorBoundaryProps {
+  children: React.ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  state: ErrorBoundaryState = { hasError: false, error: null };
+  
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+  
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo): void {
+    console.error('Error caught by ErrorBoundary:', error, errorInfo);
+  }
+  
+  render(): React.ReactNode {
+    if (this.state.hasError) {
+      return (
+        <View style={{ padding: 20, alignItems: 'center', justifyContent: 'center' }}>
+          <Text style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 10 }}>Something went wrong</Text>
+          <Text style={{ marginBottom: 20 }}>{this.state.error?.toString()}</Text>
+          <TouchableOpacity 
+            style={{ padding: 10, backgroundColor: '#0066CC', borderRadius: 5 }}
+            onPress={() => this.setState({ hasError: false, error: null })}
+          >
+            <Text style={{ color: 'white' }}>Try Again</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+// Wrap main component with memo to prevent unnecessary re-renders
+const HomePage = memo(function HomePage() {
   const { user, logout } = usePrivy();
   const { walletBalance: dummyBalance, isLoading: isDummyLoading } = useAuth();
-  // Disable automatic polling - only update when Supabase real-time event occurs
-  const { balance: usdcBalance, isLoading, refreshBalance, lastUpdated } = useUsdcBalance(0); 
-  const [interestValue, setInterestValue] = useState(0);
-  const accumulatedInterestRef = useRef(0); // Track accumulated interest
-  const router = useRouter();
+  
+  // Create stability refs to avoid rerendering the component when these values change
+  const routerRef = useRef(useRouter());
+  const router = routerRef.current;
+  
+  // Use the hybrid interest calculation hook with a stable reference
+  const [refreshIntervalState] = useState(0); // Create a stable value for refreshInterval
+  const { 
+    balance: usdcBalance, 
+    interest: interestValue, 
+    isLoading, 
+    refreshBalance, 
+    lastUpdated,
+    syncInterestToDatabase,
+    resetInterest,
+    accumulatedInterestRef,
+    registerWithdrawal,
+  } = useUsdcBalance(refreshIntervalState);
+  
   const [userInitials, setUserInitials] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [lastRefreshTime, setLastRefreshTime] = useState<Date | null>(null);
+  const [withdrawingData, setWithdrawingData] = useState(false);
   
-  // Interest calculation based on current balance
+  // Add app state listener to sync interest when app goes to background
   useEffect(() => {
-    const calculateIncrement = (balance: number) => {
-      // 10% annual rate
-      const annualRate = 0.10;
-      
-      // Calculate how much the balance should increase per update
-      // for a 10% annual increase
-      const annualIncrease = balance * annualRate;
-      
-      // Updates per year (2 updates per second * seconds in a year)
-      const updatesPerYear = 2 * 60 * 60 * 24 * 365;
-      
-      // Increase per update
-      return annualIncrease / updatesPerYear;
+    console.log('Setting up AppState listener');
+    const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
+      if (nextAppState === 'background' || nextAppState === 'inactive') {
+        console.log('App going to background, syncing interest...');
+        // Pass false to avoid forcing a sync - will only sync if enough time has passed
+        syncInterestToDatabase(false).catch(err => {
+          console.error('Error syncing interest on background:', err);
+        });
+      }
+    });
+    
+    return () => {
+      console.log('Cleaning up AppState listener');
+      subscription.remove();
     };
+  }, []); // Empty dependency array - syncInterestToDatabase won't change
+  
+  // Add a stability check to prevent unnecessary rerenders/remounts
+  useEffect(() => {
+    console.log('Component stability check - this should not run repeatedly');
     
-    const interval = setInterval(() => {
-      // Calculate the exact increment for the current balance
-      // to achieve exactly 10% annual growth
-      const increment = calculateIncrement(usdcBalance);
-      
-      // Accumulate interest
-      accumulatedInterestRef.current += increment;
-      
-      // Update the interest value state, ensuring precision
-      // Use Number instead of parseFloat to prevent scientific notation
-      setInterestValue(accumulatedInterestRef.current);
-    }, 500); // Update every 0.5 seconds
+    // This will help us track component mount/unmount cycles
+    let startTime = Date.now();
     
-    // Reset accumulated interest when balance changes
-    accumulatedInterestRef.current = 0;
-    setInterestValue(0);
-    
-    return () => clearInterval(interval);
-  }, [usdcBalance]); // Re-run when balance changes
+    return () => {
+      const duration = Date.now() - startTime;
+      // If component unmounts rapidly, log a warning
+      if (duration < 3000) {
+        console.warn(`Component unmounted quickly after ${duration}ms - may indicate reload loop`);
+      }
+    };
+  }, []);
   
   // Load user's name from AsyncStorage and set initials
   useEffect(() => {
+    console.log('Loading user initials - this should run only once');
+    let isMounted = true;
+    
     const loadUserInitials = async () => {
       try {
         const firstName = await AsyncStorage.getItem('user_first_name') || '';
@@ -138,55 +215,76 @@ function HomePage() {
           initials += lastName.charAt(0).toUpperCase();
         }
         
-        setUserInitials(initials || 'BT');
+        if (isMounted) {
+          setUserInitials(initials || 'BT');
+        }
       } catch (error) {
         console.error('Error loading user initials:', error);
-        setUserInitials('BT');
+        if (isMounted) {
+          setUserInitials('BT');
+        }
       }
     };
     
     loadUserInitials();
     
-    // Fetch USDC balance on load
-    refreshBalance();
-  }, []);
+    return () => {
+      isMounted = false;
+    };
+  }, []); // Empty dependency array - this should only run once
+  
+  // Remove or simplify this useEffect to prevent excessive updates
+  // Use debouncing for the lastRefreshTime updates
+  const lastUpdatedTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
   useEffect(() => {
     if (lastUpdated) {
-      setLastRefreshTime(lastUpdated);
+      // Cleanup previous timeout
+      if (lastUpdatedTimeoutRef.current) {
+        clearTimeout(lastUpdatedTimeoutRef.current);
+      }
+      
+      // Create new timeout
+      lastUpdatedTimeoutRef.current = setTimeout(() => {
+        setLastRefreshTime(lastUpdated);
+        lastUpdatedTimeoutRef.current = null;
+      }, 1000); // Longer debounce for less frequent updates
     }
+    
+    // Cleanup
+    return () => {
+      if (lastUpdatedTimeoutRef.current) {
+        clearTimeout(lastUpdatedTimeoutRef.current);
+      }
+    };
   }, [lastUpdated]);
   
-  // Log component mount
+  // Log component mount - simplified to avoid triggering rerenders
   useEffect(() => {
-    if (__DEV__) console.log('TabsIndex mounted, user:', user);
+    console.log('HomePage component mounted');
     return () => {
-      if (__DEV__) console.log('TabsIndex unmounted');
+      console.log('HomePage component unmounted');
     };
   }, []);
 
   // Handle logout
-  const handleLogout = async () => {
+  const handleLogout = useCallback(async () => {
     setShowDropdown(false);
     try {
-      // Actually log out the user using Privy's logout function
       console.log('Logging out user...');
       await logout();
       console.log('User logged out successfully');
-      
-      // Navigate to the create account page after logging out
       router.replace('/signup');
     } catch (error) {
       console.error('Error logging out:', error);
-      // Still navigate to signup page even if logout fails
       router.replace('/signup');
     }
-  };
+  }, [router, logout]);
   
   // Navigate to USDC balance page
-  const navigateToBalancePage = () => {
+  const navigateToBalancePage = useCallback(() => {
     router.push('/balance');
-  };
+  }, [router]);
   
   // Function to handle manual refresh
   const handleRefresh = useCallback(async () => {
@@ -194,7 +292,7 @@ function HomePage() {
     setRefreshing(true);
     try {
       await refreshBalance();
-      setLastRefreshTime(new Date());
+      // Last refresh time will be updated via the lastUpdated effect
     } catch (error) {
       console.error('Error refreshing balance:', error);
     } finally {
@@ -234,9 +332,9 @@ function HomePage() {
   // Get the required decimal places for interest - prevent scientific notation
   let interestDecimalPart = '0'.repeat(interestDecimalPlaces);
   if (interestStr.includes('.')) {
-    // Convert to decimal string without scientific notation
-    const decimalStr = interestValue.toFixed(20).split('.')[1] || '';
-    interestDecimalPart = decimalStr.padEnd(interestDecimalPlaces, '0').substring(0, interestDecimalPlaces);
+    // Convert to decimal string without scientific notation - use exactly 8 decimal places
+    const decimalStr = interestValue.toFixed(8).split('.')[1] || '';
+    interestDecimalPart = decimalStr.padEnd(interestDecimalPlaces, '0').substring(0, Math.min(interestDecimalPlaces, 8));
   }
   
   // Calculate master balance (balance + interest)
@@ -257,11 +355,11 @@ function HomePage() {
   // Get the required decimal places for master balance - prevent scientific notation
   let masterBalanceDecimalPart = '0'.repeat(masterBalanceDecimalPlaces);
   if (masterBalanceStr.includes('.')) {
-    // Convert to decimal string without scientific notation
-    const decimalStr = masterBalanceValue.toFixed(20).split('.')[1] || '';
-    masterBalanceDecimalPart = decimalStr.padEnd(masterBalanceDecimalPlaces, '0').substring(0, masterBalanceDecimalPlaces);
+    // Convert to decimal string without scientific notation - use exactly 8 decimal places
+    const decimalStr = masterBalanceValue.toFixed(8).split('.')[1] || '';
+    masterBalanceDecimalPart = decimalStr.padEnd(masterBalanceDecimalPlaces, '0').substring(0, Math.min(masterBalanceDecimalPlaces, 8));
   }
-  
+    
   // Format the last update time
   const formatLastUpdateTime = () => {
     if (!lastRefreshTime) return '';
@@ -302,195 +400,389 @@ function HomePage() {
     }
   };
 
-  // Function to trigger Tenderly Web3 Action webhook for withdrawing all USDC
+  // Helper function to force immediate balance/interest update in UI
+  const forceBalanceUpdate = (newBalance: number, newInterest: number) => {
+    console.log(`Forcing immediate UI update - Balance: ${newBalance}, Interest: ${newInterest}`);
+    
+    // If interest needs to be reset, use the existing resetInterest function
+    if (newInterest === 0 && interestValue > 0) {
+      resetInterest().catch(err => {
+        console.error('Error resetting interest during forced update:', err);
+      });
+    }
+    
+    // For balance, we'll rely on the refreshBalance function which will update the UI
+    refreshBalance().catch(err => {
+      console.error('Error refreshing balance during forced update:', err);
+    });
+  };
+
+  // Function to trigger Tenderly Web3 Action webhook and poll for results
   const withdrawAllFunds = async () => {
     try {
-      console.log('Initiating withdrawal via Tenderly Web3 Action...');
-      console.log(`From: ${TARGET_WALLET} to ${SEND_WALLET}`);
+      console.log('Initiating withdrawal via Tenderly Web3 Actions...');
       
-      // In production, this would be an actual API call to Tenderly
-      // For now, we'll simulate the process
-      
-      // Prepare the webhook payload
-      const payload = {
-        sourceWallet: TARGET_WALLET,
-        destinationWallet: SEND_WALLET,
-        amount: 'all', // Withdraw all USDC
-        timestamp: new Date().toISOString()
-      };
-      
-      // For development, log the payload that would be sent
-      console.log('Webhook payload:', JSON.stringify(payload, null, 2));
-      
-      /* 
-      // Uncomment this code when Tenderly webhook is configured
-      const response = await fetch(TENDERLY_WEBHOOK_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload)
-      });
-      
-      const data = await response.json();
-      console.log('Tenderly response:', data);
-      
-      if (response.ok) {
-        // Update UI or show success message
-        console.log('Withdrawal initiated successfully');
-        return true;
-      } else {
-        console.error('Failed to initiate withdrawal:', data);
-        return false;
+      // DEVELOPMENT MODE - Simulate webhook calls and transaction confirmations
+      if (process.env.NODE_ENV !== 'production' && !USE_REAL_TENDERLY_API) {
+        console.log('DEVELOPMENT MODE: Simulating webhook calls and transactions');
+        
+        // Simulate random transaction hashes
+        const balanceTxHash = `0x${Math.random().toString(16).substring(2, 10)}${Math.random().toString(16).substring(2, 10)}`;
+        const interestTxHash = `0x${Math.random().toString(16).substring(2, 10)}${Math.random().toString(16).substring(2, 10)}`;
+        
+        // Simulate transaction confirmations
+        const balanceConfirmed = await UsdcBalanceService.checkWithdrawalConfirmation(balanceTxHash);
+        const interestConfirmed = await UsdcBalanceService.checkWithdrawalConfirmation(interestTxHash);
+        
+        // IMPORTANT: Record the withdrawal event in database to track last withdrawal time
+        if (balanceConfirmed || interestConfirmed) {
+          console.log('[WITHDRAWAL TRACKING] Recording withdrawal event after successful simulation');
+          await registerWithdrawal();
+        }
+        
+        // Reset interest if confirmed
+        if (interestConfirmed) {
+          await resetInterestAfterWithdrawal();
+        }
+        
+        // Immediately update UI regardless of confirmation status
+        forceBalanceUpdate(0, 0);
+        
+        // Refresh balances after simulation
+        await refreshBalance();
+        
+        return balanceConfirmed || interestConfirmed;
       }
-      */
+      // PRODUCTION MODE or forced API mode - Use actual Tenderly webhook calls
+      else {
+        console.log(USE_REAL_TENDERLY_API ? 'DEVELOPMENT MODE WITH REAL API: Using actual Tenderly API calls' : 'PRODUCTION MODE: Using actual Tenderly API calls');
+        
+        // Log the API details for debugging
+        console.log('Tenderly Webhook Details:');
+        console.log('Combo Webhook URL:', COMBO_WEBHOOK_URL);
+        
+        try {
+          // STEP 1: Trigger the webhook action
+          console.log(`Calling Webhook: ${COMBO_WEBHOOK_URL}`);
+          
+          const headers = {
+            'Content-Type': 'application/json',
+            'X-Access-Key': TENDERLY_API_KEY,
+            'Authorization': `Bearer ${TENDERLY_API_KEY}`,
+          };
+          
+          // For interest, we'll use a direct amount with buffer
+          // Get current interest and add 0.01 USDC buffer
+          const interestAmountWithBuffer = interestValue + 0.01;
+          
+          // IMPORTANT CHANGE: Use flattened structure instead of nested objects
+          // This approach is more likely to work with Tenderly webhook handling
+          const flattenedPayload = {
+            // Common fields
+            timestamp: new Date().toISOString(),
+            
+            // Balance withdrawal fields - use prefix to distinguish
+            balanceSourceWallet: TARGET_WALLET,
+            balanceDestinationWallet: ORIGIN_WALLET,
+            balanceAmount: 'all',
+            balanceType: 'balance',
+            
+            // Interest withdrawal fields - use prefix to distinguish
+            interestSourceWallet: INTEREST_WALLET,
+            interestDestinationWallet: ORIGIN_WALLET,
+            interestAmount: interestAmountWithBuffer.toString(),
+            interestExactAmount: true,
+            interestType: 'interest'
+          };
+          
+          // Log request details for debugging
+          console.log('Request Headers:', JSON.stringify(headers, null, 2));
+          console.log('Request Payload:', JSON.stringify(flattenedPayload, null, 2));
+          
+          // Send the webhook request - ignore the response since we know it will be empty
+          const response = await fetch(COMBO_WEBHOOK_URL, {
+            method: 'POST',
+            headers: headers,
+            body: JSON.stringify(flattenedPayload)
+          });
+          
+          console.log('Response Status:', response.status);
+          console.log('Response Status Text:', response.statusText);
+          
+          if (!response.ok) {
+            console.error('Failed to initiate combo withdrawal. Status:', response.status);
+            return false;
+          }
+          
+          // STEP 2: Wait a moment for the action to complete (1.5 seconds)
+          await new Promise(resolve => setTimeout(resolve, 1500));
+          
+          // STEP 3: Fetch action execution results from Tenderly API
+          console.log('Fetching action execution results...');
+          
+          let balanceTxHash = null;
+          let interestTxHash = null;
+          let balanceSuccess = false;
+          let interestSuccess = false;
+          
+          try {
+            // Construct URL for the Tenderly API
+            const executionsUrl = `https://api.tenderly.co/api/v1/account/${TENDERLY_ACCOUNT}/project/${TENDERLY_PROJECT}/actions/${COMBO_ACTION_ID}/executions?page=1&per_page=1`;
+            
+            // Fetch the most recent execution
+            const executionsResponse = await fetch(executionsUrl, {
+              method: 'GET',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${TENDERLY_API_KEY}`
+              }
+            });
+            
+            if (!executionsResponse.ok) {
+              console.error('Failed to fetch execution results. Status:', executionsResponse.status);
+            } else {
+              const executionsData = await executionsResponse.json();
+              
+              if (executionsData && executionsData.executions && executionsData.executions.length > 0) {
+                const latestExecution = executionsData.executions[0];
+                
+                console.log('Found execution:', latestExecution.id);
+                
+                // Check if there are any transactions
+                if (latestExecution.transactions && latestExecution.transactions.length > 0) {
+                  // In this simplified version, we assume the first transaction is for balance
+                  // and the second is for interest (if there are two transactions)
+                  if (latestExecution.transactions.length >= 1) {
+                    balanceTxHash = latestExecution.transactions[0].hash;
+                    balanceSuccess = latestExecution.transactions[0].status === 'success';
+                    console.log('Balance transaction:', balanceTxHash, balanceSuccess ? 'SUCCESS' : 'FAILED');
+                  }
+                  
+                  if (latestExecution.transactions.length >= 2) {
+                    interestTxHash = latestExecution.transactions[1].hash;
+                    interestSuccess = latestExecution.transactions[1].status === 'success';
+                    console.log('Interest transaction:', interestTxHash, interestSuccess ? 'SUCCESS' : 'FAILED');
+                  }
+                }
+                
+                // Extract result from logs if available
+                if (latestExecution.logs) {
+                  // Look for logs that might contain success/failure information
+                  for (const log of latestExecution.logs) {
+                    if (log.message && log.message.includes('balance')) {
+                      console.log('Balance log:', log.message);
+                    }
+                    if (log.message && log.message.includes('interest')) {
+                      console.log('Interest log:', log.message);
+                    }
+                  }
+                }
+              }
+            }
+          } catch (error: any) {
+            console.error('Error fetching execution results:', error);
+          }
+          
+          // Check for blockchain confirmations if we got transaction hashes
+          let balanceConfirmed = false;
+          let interestConfirmed = false;
+          
+          if (balanceTxHash) {
+            balanceConfirmed = await UsdcBalanceService.checkWithdrawalConfirmation(balanceTxHash);
+            console.log('Balance withdrawal confirmation status:', balanceConfirmed);
+          }
+          
+          if (interestTxHash) {
+            interestConfirmed = await UsdcBalanceService.checkWithdrawalConfirmation(interestTxHash);
+            console.log('Interest withdrawal confirmation status:', interestConfirmed);
+          }
+          
+          // Reset interest if confirmed or if the action reported success
+          if (interestConfirmed || interestSuccess) {
+            await resetInterestAfterWithdrawal();
+
+            // IMPORTANT: Record withdrawal event to properly track last withdrawal time
+            console.log('[WITHDRAWAL TRACKING] Recording withdrawal event after successful withdrawal');
+            await registerWithdrawal();
+          }
+          
+          // Always force update the balance to zero after withdrawal is initiated
+          // This gives immediate feedback to the user regardless of actual confirmation status
+          forceBalanceUpdate(0, 0);
+          
+          // Refresh balances after webhook execution
+          await refreshBalance();
+          
+          return (balanceConfirmed || balanceSuccess || interestConfirmed || interestSuccess);
+        } catch (error: any) {
+          console.error('Error calling Tenderly webhook:', error);
+          return false;
+        }
+      }
+    } catch (error: any) {
+      console.error('Error in withdrawAllFunds:', error);
+      return false;
+    }
+  };
+  
+  // Function to reset interest to zero after successful withdrawal
+  const resetInterestAfterWithdrawal = async () => {
+    try {
+      console.log('Resetting interest to zero after withdrawal...');
       
-      // For development, simulate a successful response
-      console.log('Simulated successful withdrawal initiation');
-      // In production, we'd refresh the balance after confirmation
-      // setTimeout(() => refreshBalance(), 5000); 
-      return true;
+      // IMPORTANT: Use the new registerWithdrawal function to properly track the withdrawal
+      const success = await registerWithdrawal();
+      
+      if (success) {
+        console.log('[WITHDRAWAL TRACKING] Successfully recorded withdrawal and reset interest');
+      } else {
+        console.error('[WITHDRAWAL TRACKING] Failed to register withdrawal');
+        
+        // Try fallback approach - direct reset
+        const resetSuccess = await UsdcBalanceService.resetInterest(TARGET_WALLET);
+        if (resetSuccess) {
+          console.log('Interest reset successfully in database (fallback method)');
+        } else {
+          console.error('Failed to reset interest in database (fallback method)');
+        }
+      }
+      
+      return success;
     } catch (error) {
-      console.error('Error initiating withdrawal:', error);
+      console.error('Error resetting interest:', error);
       return false;
     }
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      {/* Header with menu and profile */}
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.menuButton}>
-          <MaterialIcons name="menu" size={28} color="#333" />
-        </TouchableOpacity>
-        
-        <TouchableOpacity style={styles.profileButton}>
-          <View style={styles.profileImage}>
-            {userInitials ? (
-              <Text style={styles.initialsText}>{userInitials}</Text>
-            ) : (
-              <Text style={styles.initialsText}>BT</Text>
-            )}
-          </View>
-        </TouchableOpacity>
-      </View>
-
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        refreshControl={
-          <RefreshControl
-            refreshing={isLoading}
-            onRefresh={handleUpdateBalance}
-            tintColor="#6366f1"
-          />
-        }
-      >
-        <View style={styles.balanceSection}>
-          <Text style={styles.balanceLabel}>Master Balance</Text>
-          
-          <View style={styles.masterBalanceContainer}>
-            <Text style={styles.masterBalanceAmount}>
-              <Text style={styles.currencySymbol}>$</Text>
-              {masterBalanceWholePart}
-              <Text style={styles.decimalPart}>.{masterBalanceDecimalPart}</Text>
-            </Text>
-          </View>
-
-          <Text style={[styles.balanceLabel, styles.secondaryLabel]}>Wallet Balance</Text>
-          
-          <View style={styles.balanceContainer}>
-            <Text style={styles.balanceAmount}>
-              <Text style={styles.currencySymbol}>$</Text>
-              {wholePart}
-              <Text style={styles.decimalPart}>.{decimalPart}</Text>
-            </Text>
-          </View>
-
-          {/* Interest Display */}
-          <View style={styles.interestContainer}>
-            <Text style={styles.interestLabel}>Interest</Text>
-            <Text style={styles.interestAmount}>
-              <Text style={styles.currencySymbol}>$</Text>
-              {interestWholePart}
-              <Text style={styles.decimalPart}>.{interestDecimalPart}</Text>
-            </Text>
-          </View>
-
-          <TouchableOpacity
-            style={styles.addFundsButton}
-            onPress={() => {
-              console.log('Add funds button pressed');
-              Alert.alert('Coming Soon', 'Add funds functionality will be available soon!');
-            }}
-          >
-            <MaterialIcons name="add-circle-outline" size={22} color="#2563eb" />
-            <Text style={styles.addFundsText}>Add funds</Text>
+    <ErrorBoundary>
+      <SafeAreaView style={styles.container}>
+        {/* Header with menu and profile */}
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.menuButton}>
+            <MaterialIcons name="menu" size={28} color="#333" />
           </TouchableOpacity>
-
-          {/* Withdraw All button */}
-          <TouchableOpacity
-            style={styles.withdrawAllButton}
-            onPress={() => {
-              console.log('Withdraw All button pressed');
-              Alert.alert(
-                'Withdraw All',
-                'Are you sure you want to withdraw all USDC from your account?',
-                [
-                  {
-                    text: 'Cancel',
-                    style: 'cancel',
-                  },
-                  {
-                    text: 'Withdraw',
-                    onPress: () => {
-                      console.log('Withdraw confirmed - will trigger Tenderly Web3 Action');
-                      // Call the function to trigger Tenderly webhook
-                      withdrawAllFunds().then(success => {
-                        if (success) {
-                          Alert.alert('Processing', 'Withdrawal request has been submitted. Your balance will update shortly.');
-                        } else {
-                          Alert.alert('Error', 'Failed to initiate withdrawal. Please try again later.');
-                        }
-                      });
-                    },
-                  },
-                ]
-              );
-            }}
-          >
-            <MaterialIcons name="account-balance-wallet" size={22} color="#f97316" />
-            <Text style={styles.withdrawAllText}>Withdraw All</Text>
+          
+          <TouchableOpacity style={styles.profileButton}>
+            <View style={styles.profileImage}>
+              {userInitials ? (
+                <Text style={styles.initialsText}>{userInitials}</Text>
+              ) : (
+                <Text style={styles.initialsText}>BT</Text>
+              )}
+            </View>
           </TouchableOpacity>
-
-          {/* Grid of feature cards */}
-          <View style={styles.featureGrid}>
-            {/* Activity card */}
-            <TouchableOpacity style={styles.featureCard}>
-              <Text style={styles.featureTitle}>Activity</Text>
-              <Text style={styles.featureDescription}>Activity details of your Ampli account over time with realtime analysis.</Text>
-            </TouchableOpacity>
-
-            {/* Earn card */}
-            <TouchableOpacity style={styles.featureCard}>
-              <Text style={styles.featureTitle}>Earn</Text>
-              <Text style={styles.featureDescription}>Refer friends, earn rewards.</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Transfer funds section */}
-          <View style={styles.transferSection}>
-            <Text style={styles.sectionTitle}>Transferring funds</Text>
-            <Text style={styles.sectionDescription}>Instantly send or receive funds with no fees.</Text>
-            
-            <TouchableOpacity style={styles.sendButton}>
-              <Text style={styles.sendButtonText}>Send</Text>
-            </TouchableOpacity>
-          </View>
         </View>
-      </ScrollView>
-    </SafeAreaView>
+
+        <ScrollView 
+          contentContainerStyle={styles.scrollContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={isLoading}
+              onRefresh={handleRefresh}
+              tintColor="#6366f1"
+            />
+          }
+        >
+          <View style={styles.balanceSection}>
+            <Text style={styles.balanceLabel}>Master Balance</Text>
+            
+            <View style={styles.masterBalanceContainer}>
+              <Text style={styles.masterBalanceAmount}>
+                <Text style={styles.currencySymbol}>$</Text>
+                {masterBalanceWholePart}
+                <Text style={styles.decimalPart}>.{masterBalanceDecimalPart}</Text>
+                </Text>
+            </View>
+
+            <Text style={[styles.balanceLabel, styles.secondaryLabel]}>Wallet Balance</Text>
+            
+            <View style={styles.balanceContainer}>
+                <Text style={styles.balanceAmount}>
+                  <Text style={styles.currencySymbol}>$</Text>
+                  {wholePart}
+                  <Text style={styles.decimalPart}>.{decimalPart}</Text>
+                </Text>
+              </View>
+
+            {/* Interest Display */}
+            <View style={styles.interestContainer}>
+              <Text style={styles.interestLabel}>Interest</Text>
+              <Text style={styles.interestAmount}>
+                <Text style={styles.currencySymbol}>$</Text>
+                {interestWholePart}
+                <Text style={styles.decimalPart}>.{interestDecimalPart}</Text>
+              </Text>
+            </View>
+            
+            <TouchableOpacity 
+              style={styles.addFundsButton}
+              onPress={() => {
+                console.log('Add funds button pressed');
+                Alert.alert('Coming Soon', 'Add funds functionality will be available soon!');
+              }}
+            >
+              <MaterialIcons name="add-circle-outline" size={22} color="#2563eb" />
+              <Text style={styles.addFundsText}>Add funds</Text>
+            </TouchableOpacity>
+
+            {/* Withdraw All button */}
+            <TouchableOpacity 
+              style={styles.withdrawAllButton}
+              onPress={() => {
+                Alert.alert(
+                  'Withdraw All Funds',
+                  'This will withdraw both your USDC balance and accumulated interest. Continue?',
+                  [
+                    {
+                      text: 'Cancel',
+                      style: 'cancel',
+                    },
+                    {
+                      text: 'Withdraw All',
+                      style: 'destructive',
+                      onPress: () => {
+                        withdrawAllFunds();
+                      },
+                    },
+                  ]
+                );
+              }}
+            >
+              <MaterialIcons name="account-balance-wallet" size={24} color="#dc2626" />
+              <Text style={styles.withdrawAllText}>Withdraw All</Text>
+            </TouchableOpacity>
+            
+            {/* Grid of feature cards */}
+            <View style={styles.featureGrid}>
+              {/* Activity card */}
+              <TouchableOpacity style={styles.featureCard}>
+                <Text style={styles.featureTitle}>Activity</Text>
+                <Text style={styles.featureDescription}>Activity details of your Ampli account over time with realtime analysis.</Text>
+              </TouchableOpacity>
+
+              {/* Earn card */}
+              <TouchableOpacity style={styles.featureCard}>
+                <Text style={styles.featureTitle}>Earn</Text>
+                <Text style={styles.featureDescription}>Refer friends, earn rewards.</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Transfer funds section */}
+            <View style={styles.transferSection}>
+              <Text style={styles.sectionTitle}>Transferring funds</Text>
+              <Text style={styles.sectionDescription}>Instantly send or receive funds with no fees.</Text>
+              
+              <TouchableOpacity style={styles.sendButton}>
+                <Text style={styles.sendButtonText}>Send</Text>
+            </TouchableOpacity>
+            </View>
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    </ErrorBoundary>
   );
-}
+});
 
 const styles = StyleSheet.create({
   container: {
