@@ -14,17 +14,19 @@ import UsdcBalanceService, { TARGET_WALLET, INTEREST_WALLET, ORIGIN_WALLET } fro
 // Tenderly Web3 Actions configuration
 const TENDERLY_ACCOUNT = 'thebeej';
 const TENDERLY_PROJECT = 'project'; // TODO: Verify this is the correct project name
-const TENDERLY_API_KEY = 'Thv8HwQZOUX3k9SfeTHE1nWHlpez0J3f'; // New API key provided by the user
+const TENDERLY_API_KEY = 'xdq0bEB5o3hhdyI70Akm1sTXCqYOuwli'; // Use the API key from TENDERLY_SETUP.md
 
-// Updated IDs from your most recent deployment
-const BALANCE_ACTION_ID = 'dda57d54-33b6-4f05-bcb1-cb23508668dd'; // Old balance action ID
-const INTEREST_ACTION_ID = 'd434bd21-f36a-4e70-ae68-d211ac1078aa'; // Old interest action ID
-const COMBO_ACTION_ID = '235de538-7869-4ff3-9918-b2dec1496522'; // TODO: Verify this is the correct combo_withdrawal action ID
+// Updated IDs from your most recent deployment using IDs from TENDERLY_SETUP.md
+const BALANCE_ACTION_ID = 'dda57d54-33b6-4f05-bcb1-cb23508668dd'; // Balance action ID from docs
+const INTEREST_ACTION_ID = 'd434bd21-f36a-4e70-ae68-d211ac1078aa'; // Interest action ID from docs
 
-// Using Tenderly webhook URLs for actions - confirmed working format
+// Using Tenderly webhook URLs for actions - confirmed working format from docs
 const BALANCE_WEBHOOK_URL = `https://api.tenderly.co/api/v1/actions/${BALANCE_ACTION_ID}/webhook`;
 const INTEREST_WEBHOOK_URL = `https://api.tenderly.co/api/v1/actions/${INTEREST_ACTION_ID}/webhook`;
-const COMBO_WEBHOOK_URL = `https://api.tenderly.co/api/v1/actions/${COMBO_ACTION_ID}/webhook`;
+
+// Direct API endpoints for checking execution results
+const BALANCE_EXECUTIONS_URL = `https://api.tenderly.co/api/v1/account/${TENDERLY_ACCOUNT}/project/${TENDERLY_PROJECT}/actions/${BALANCE_ACTION_ID}/executions`;
+const INTEREST_EXECUTIONS_URL = `https://api.tenderly.co/api/v1/account/${TENDERLY_ACCOUNT}/project/${TENDERLY_PROJECT}/actions/${INTEREST_ACTION_ID}/executions`;
 
 // Flag to force using real Tenderly API calls even in development mode
 const USE_REAL_TENDERLY_API = true;
@@ -456,141 +458,260 @@ const HomePage = memo(function HomePage() {
       }
       // PRODUCTION MODE or forced API mode - Use actual Tenderly webhook calls
       else {
-        console.log('REAL API MODE: Using Tenderly API calls with API key:', TENDERLY_API_KEY.slice(0, 4) + '...');
+        console.log('🔐 TENDERLY MODE: Using API key: ' + TENDERLY_API_KEY.slice(0, 4) + '...');
+        console.log('🔐 Target wallet balance: ' + usdcBalance);
+        console.log('🔐 Interest value: ' + interestValue);
         
-        // Log the API details for debugging
-        console.log('✅ Tenderly Webhook Details:');
-        console.log('✅ Account:', TENDERLY_ACCOUNT);
-        console.log('✅ Project:', TENDERLY_PROJECT);
-        console.log('✅ Action ID:', BALANCE_ACTION_ID); // We'll use balance action instead of combo
-        console.log('✅ Webhook URL:', BALANCE_WEBHOOK_URL); // Use balance URL - from TENDERLY_SETUP.md
+        // Step 1: Balance Withdrawal
+        console.log('=============================================');
+        console.log('STEP 1: BALANCE WITHDRAWAL');
+        console.log('=============================================');
         
-        // CRITICAL SECTION - DIRECT BALANCE WITHDRAWAL
-        console.log('🔴 [WEBHOOK] Starting direct balance withdrawal webhook call');
+        // API details log
+        console.log('👉 Account: ' + TENDERLY_ACCOUNT);
+        console.log('👉 Project: ' + TENDERLY_PROJECT);
+        console.log('👉 Balance Action ID: ' + BALANCE_ACTION_ID);
+        console.log('👉 Balance Webhook URL: ' + BALANCE_WEBHOOK_URL);
+        
+        // Prepare headers and payload exactly as in the working example from TENDERLY_SETUP.md
+        const balanceHeaders = {
+          'Content-Type': 'application/json',
+          'X-Access-Key': TENDERLY_API_KEY,
+          'Authorization': `Bearer ${TENDERLY_API_KEY}`
+        };
+        
+        // From the TENDERLY_SETUP.md example that worked previously
+        const balancePayload = {
+          sourceWallet: TARGET_WALLET,
+          destinationWallet: ORIGIN_WALLET,
+          amount: 'all',
+          type: 'balance',
+          timestamp: new Date().toISOString()
+        };
+        
+        console.log('🚀 Calling balance webhook with payload:', JSON.stringify(balancePayload));
+        
+        // Make the webhook call
+        const balanceResponse = await fetch(BALANCE_WEBHOOK_URL, {
+          method: 'POST',
+          headers: balanceHeaders,
+          body: JSON.stringify(balancePayload)
+        });
+        
+        console.log('📋 Balance webhook response status:', balanceResponse.status);
+        let balanceResponseText = '';
+        
         try {
-          // Proven working headers from TENDERLY_WEBHOOK_SUMMARY.md
-          const balanceHeaders = {
+          balanceResponseText = await balanceResponse.text();
+          console.log('📋 Balance webhook response body:', balanceResponseText);
+        } catch (e) {
+          console.log('❌ Failed to get response text:', e);
+        }
+        
+        if (!balanceResponse.ok) {
+          console.error('❌ Balance withdrawal failed with status:', balanceResponse.status);
+          return false;
+        }
+        
+        let balanceResponseData = null;
+        try {
+          balanceResponseData = balanceResponseText ? JSON.parse(balanceResponseText) : {};
+          console.log('📊 Parsed balance response data:', balanceResponseData);
+        } catch (e) {
+          console.log('⚠️ Could not parse response as JSON, continuing anyway');
+        }
+        
+        // Log execution ID if available
+        const balanceExecutionId = balanceResponseData?.executionId;
+        if (balanceExecutionId) {
+          console.log('🆔 Got balance execution ID:', balanceExecutionId);
+        }
+        
+        // Step 2: Wait for action to process (3 seconds)
+        console.log('=============================================');
+        console.log('STEP 2: WAITING FOR BALANCE PROCESSING');
+        console.log('=============================================');
+        console.log('⏳ Waiting 3 seconds for balance transaction to process...');
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        
+        // Step 3: Check for execution results
+        console.log('=============================================');
+        console.log('STEP 3: CHECKING BALANCE EXECUTION');
+        console.log('=============================================');
+        console.log('🔍 Checking balance execution at:', BALANCE_EXECUTIONS_URL);
+        
+        // Using the execution with only Authorization header
+        try {
+          const executionsResponse = await fetch(`${BALANCE_EXECUTIONS_URL}?page=1&per_page=1`, {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${TENDERLY_API_KEY}`
+            }
+          });
+          
+          console.log('📋 Executions response status:', executionsResponse.status);
+          
+          if (executionsResponse.ok) {
+            const executionsData = await executionsResponse.json();
+            console.log('📊 Executions data:', JSON.stringify(executionsData));
+            
+            if (executionsData.executions && executionsData.executions.length > 0) {
+              const execution = executionsData.executions[0];
+              console.log('📝 Latest execution ID:', execution.id);
+              console.log('📝 Execution status:', execution.status);
+              
+              // Log transactions if any
+              if (execution.transactions && execution.transactions.length > 0) {
+                execution.transactions.forEach((tx, index) => {
+                  console.log(`📝 Transaction ${index + 1}:`, tx.hash, 'Status:', tx.status);
+                });
+              } else {
+                console.log('⚠️ No transactions found in execution');
+              }
+              
+              // Log any errors
+              if (execution.error) {
+                console.error('❌ Execution error:', execution.error);
+              }
+              
+              // Log specific logs if available
+              if (execution.logs) {
+                execution.logs.forEach((log, index) => {
+                  if (log.level === 'error') {
+                    console.error(`❌ Log ${index + 1}:`, log.message);
+                  } else {
+                    console.log(`📜 Log ${index + 1}:`, log.message);
+                  }
+                });
+              }
+            } else {
+              console.log('⚠️ No executions found');
+            }
+          } else {
+            console.error('❌ Failed to get executions with status:', executionsResponse.status);
+          }
+        } catch (e) {
+          console.error('❌ Error checking executions:', e);
+        }
+        
+        // Step 4: Interest Withdrawal (if interest > 0)
+        console.log('=============================================');
+        console.log('STEP 4: INTEREST WITHDRAWAL');
+        console.log('=============================================');
+        
+        let interestSuccess = false;
+        
+        if (interestValue > 0) {
+          console.log('👉 Interest to withdraw:', interestValue);
+          console.log('👉 Interest Action ID:', INTEREST_ACTION_ID);
+          console.log('👉 Interest Webhook URL:', INTEREST_WEBHOOK_URL);
+          
+          // Prepare headers and payload for interest withdrawal
+          const interestHeaders = {
             'Content-Type': 'application/json',
             'X-Access-Key': TENDERLY_API_KEY,
             'Authorization': `Bearer ${TENDERLY_API_KEY}`
           };
           
-          // Proven working payload format from TENDERLY_SETUP.md
-          const balancePayload = {
-            sourceWallet: TARGET_WALLET,
+          // Add buffer to interest amount and use exact format from TENDERLY_SETUP.md
+          const interestAmountWithBuffer = interestValue + 0.01;
+          const interestPayload = {
+            sourceWallet: INTEREST_WALLET,
             destinationWallet: ORIGIN_WALLET,
-            amount: 'all',
-            type: 'balance',
+            amount: interestAmountWithBuffer.toString(),
+            type: 'interest',
             timestamp: new Date().toISOString()
           };
           
-          console.log('🔴 [WEBHOOK] Balance headers:', JSON.stringify(balanceHeaders, null, 2));
-          console.log('🔴 [WEBHOOK] Balance payload:', JSON.stringify(balancePayload, null, 2));
+          console.log('🚀 Calling interest webhook with payload:', JSON.stringify(interestPayload));
           
-          // Execute the direct balance withdrawal webhook call
-          console.log('🔴 [WEBHOOK] Calling balance webhook:', BALANCE_WEBHOOK_URL);
-          const balanceResponse = await fetch(BALANCE_WEBHOOK_URL, {
+          // Make the webhook call
+          const interestResponse = await fetch(INTEREST_WEBHOOK_URL, {
             method: 'POST',
-            headers: balanceHeaders,
-            body: JSON.stringify(balancePayload)
+            headers: interestHeaders,
+            body: JSON.stringify(interestPayload)
           });
           
-          console.log('🔴 [WEBHOOK] Balance webhook status:', balanceResponse.status);
-          let balanceResponseText = '';
+          console.log('📋 Interest webhook response status:', interestResponse.status);
+          let interestResponseText = '';
+          
           try {
-            balanceResponseText = await balanceResponse.text();
-            console.log('🔴 [WEBHOOK] Balance webhook response:', balanceResponseText);
+            interestResponseText = await interestResponse.text();
+            console.log('📋 Interest webhook response body:', interestResponseText);
           } catch (e) {
-            console.log('🔴 [WEBHOOK] No response text from balance webhook');
+            console.log('❌ Failed to get interest response text:', e);
           }
           
-          // If balance webhook fails, abort
-          if (!balanceResponse.ok) {
-            console.error('❌ [WEBHOOK] Failed to initiate balance withdrawal. Status:', balanceResponse.status);
-            return false;
-          }
-          
-          // INTEREST WITHDRAWAL (if interest > 0)
-          let interestSuccess = false;
-          if (interestValue > 0) {
-            console.log('🔵 [WEBHOOK] Starting interest withdrawal webhook call');
-            // Proven working headers
-            const interestHeaders = {
-              'Content-Type': 'application/json',
-              'X-Access-Key': TENDERLY_API_KEY,
-              'Authorization': `Bearer ${TENDERLY_API_KEY}`
-            };
-            
-            // For interest, we need a buffer amount
-            const interestAmountWithBuffer = interestValue + 0.01;
-            
-            // Proven working payload format
-            const interestPayload = {
-              sourceWallet: INTEREST_WALLET,
-              destinationWallet: ORIGIN_WALLET,
-              amount: interestAmountWithBuffer.toString(),
-              exactAmount: true,
-              type: 'interest',
-              timestamp: new Date().toISOString()
-            };
-            
-            console.log('🔵 [WEBHOOK] Interest headers:', JSON.stringify(interestHeaders, null, 2));
-            console.log('🔵 [WEBHOOK] Interest payload:', JSON.stringify(interestPayload, null, 2));
-            
-            // Execute the interest webhook call
-            console.log('🔵 [WEBHOOK] Calling interest webhook:', INTEREST_WEBHOOK_URL);
-            const interestResponse = await fetch(INTEREST_WEBHOOK_URL, {
-              method: 'POST',
-              headers: interestHeaders,
-              body: JSON.stringify(interestPayload)
-            });
-            
-            console.log('🔵 [WEBHOOK] Interest webhook status:', interestResponse.status);
-            let interestResponseText = '';
-            try {
-              interestResponseText = await interestResponse.text();
-              console.log('🔵 [WEBHOOK] Interest webhook response:', interestResponseText);
-            } catch (e) {
-              console.log('🔵 [WEBHOOK] No response text from interest webhook');
-            }
-            
-            interestSuccess = interestResponse.ok;
-            if (!interestSuccess) {
-              console.error('❌ [WEBHOOK] Failed to initiate interest withdrawal. Status:', interestResponse.status);
-            }
+          if (!interestResponse.ok) {
+            console.error('❌ Interest withdrawal failed with status:', interestResponse.status);
           } else {
-            console.log('🔵 [WEBHOOK] Skipping interest withdrawal - no interest to withdraw');
-            interestSuccess = true; // Consider it success if no interest to withdraw
+            interestSuccess = true;
+            // Wait for interest action to process
+            console.log('⏳ Waiting 2 seconds for interest transaction to process...');
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            
+            // Check interest execution
+            console.log('🔍 Checking interest execution at:', INTEREST_EXECUTIONS_URL);
+            try {
+              const interestExecutionsResponse = await fetch(`${INTEREST_EXECUTIONS_URL}?page=1&per_page=1`, {
+                method: 'GET',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${TENDERLY_API_KEY}`
+                }
+              });
+              
+              if (interestExecutionsResponse.ok) {
+                const interestExecutionsData = await interestExecutionsResponse.json();
+                if (interestExecutionsData.executions && interestExecutionsData.executions.length > 0) {
+                  const execution = interestExecutionsData.executions[0];
+                  console.log('📝 Latest interest execution ID:', execution.id);
+                  console.log('📝 Interest execution status:', execution.status);
+                }
+              }
+            } catch (e) {
+              console.error('❌ Error checking interest executions:', e);
+            }
           }
-          
-          // Wait for action processing
-          console.log('⏳ Waiting for action processing (3 seconds)...');
-          await new Promise(resolve => setTimeout(resolve, 3000));
-          
-          // Checking blockchain confirmations not needed - we'll assume success and update UI
-          console.log('✅ Recording withdrawal and resetting interest...');
-          await resetInterestAfterWithdrawal();
-          await registerWithdrawal();
-          
-          // Update UI
-          console.log('✅ Updating UI...');
-          forceBalanceUpdate(0, 0);
-          
-          // Refresh balance from database
-          console.log('✅ Refreshing balance...');
-          await refreshBalance();
-          
-          const success = true; // Consider success if we got this far
-          console.log('=============== WITHDRAW ALL FUNDS END ===============');
-          return success;
-        } catch (error) {
-          console.error('❌ [CRITICAL ERROR] Error in withdrawal webhooks:', error);
-          console.log('=============== WITHDRAW ALL FUNDS ERROR ===============');
-          return false;
+        } else {
+          console.log('ℹ️ No interest to withdraw, skipping interest withdrawal');
+          interestSuccess = true;
         }
+        
+        // Step 5: Reset interest and record withdrawal
+        console.log('=============================================');
+        console.log('STEP 5: RESET INTEREST & UPDATE DATABASE');
+        console.log('=============================================');
+        console.log('✏️ Recording withdrawal and resetting interest...');
+        
+        await resetInterestAfterWithdrawal();
+        await registerWithdrawal();
+        
+        // Step 6: Force UI update
+        console.log('=============================================');
+        console.log('STEP 6: UPDATE UI');
+        console.log('=============================================');
+        console.log('🖥️ Forcing UI update with zero balance...');
+        
+        forceBalanceUpdate(0, 0);
+        
+        // Step 7: Refresh from database
+        console.log('=============================================');
+        console.log('STEP 7: REFRESH FROM DATABASE');
+        console.log('=============================================');
+        console.log('🔄 Refreshing balance from Supabase...');
+        
+        await refreshBalance();
+        
+        console.log('✅ Withdrawal process complete.');
+        console.log('=============== WITHDRAW ALL FUNDS END ===============');
+        
+        // Consider the operation successful if we got here
+        return true;
       }
     } catch (error) {
-      console.error('❌ [OUTER ERROR] Error in withdrawAllFunds:', error);
+      console.error('❌ Critical error in withdrawAllFunds:', error);
       console.log('=============== WITHDRAW ALL FUNDS ERROR ===============');
       return false;
     }
