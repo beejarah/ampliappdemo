@@ -605,8 +605,8 @@ const HomePage = function HomePage() {
       console.log('======= CRITICAL: RESETTING INTEREST AFTER WITHDRAWAL =======');
       
       // First, immediately update UI to show zero balance and interest
-      setBalance(0);
-      setInterest(0);
+      // setBalance(0); // No longer needed - handled by database
+      // setInterest(0); // No longer needed - handled by database
       
       // IMPORTANT: Use the new registerWithdrawal function to properly track the withdrawal
       const success = await registerWithdrawal();
