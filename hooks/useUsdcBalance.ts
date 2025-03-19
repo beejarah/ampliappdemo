@@ -107,10 +107,6 @@ export function useUsdcBalance(refreshInterval = 0) {
     // Use a higher threshold (0.0001) to avoid floating point issues
     if (currentBalance <= 0.0001) {
       console.log('Balance is zero or near-zero - not starting interest calculation');
-      
-      // ALWAYS reset accumulated interest to zero when balance is zero
-      accumulatedInterestRef.current = 0;
-      setInterest(0);
       return;
     }
     
@@ -208,9 +204,9 @@ export function useUsdcBalance(refreshInterval = 0) {
         if (isMountedRef.current) {
           setLastWithdrawalTime(now);
           
-          // Reset interest locally
-          setInterest(0);
-          accumulatedInterestRef.current = 0;
+          // Let PostgreSQL handle interest resetting
+          // No need to reset interest locally as it will be handled during the next refresh
+          setBalance(0); // Update balance immediately for UI feedback
         }
         
         console.log('Withdrawal recorded successfully');
@@ -249,16 +245,11 @@ export function useUsdcBalance(refreshInterval = 0) {
       
       console.log(`Database values - Balance: ${dbBalance}, Interest: ${pgInterest}`);
       
-      // CRITICAL: If BOTH state balance AND database balance are zero, force interest to zero
+      // CRITICAL: If database balance is zero, use PostgreSQL interest value
       if (dbBalance <= 0.0001) {
-        console.log('Database balance is zero - forcing interest to zero');
-        accumulatedInterestRef.current = 0;
-        setInterest(0);
-        
-        // Also reset in database if needed
-        if (pgInterest > 0) {
-          await UsdcBalanceService.resetInterest(TARGET_WALLET);
-        }
+        console.log('Database balance is zero - using PostgreSQL interest value');
+        accumulatedInterestRef.current = pgInterest;
+        setInterest(pgInterest);
         
         LAST_INTEREST_SYNC_TIME = now;
         return true;
@@ -335,6 +326,9 @@ export function useUsdcBalance(refreshInterval = 0) {
       
       LAST_BALANCE_UPDATE_TIME = now;
       
+      // Store previous balance to detect zero to non-zero transitions
+      const previousBalance = balance;
+      
       // ALWAYS stop client-side calculation first to prevent race conditions
       stopClientInterestCalculation();
       
@@ -360,17 +354,17 @@ export function useUsdcBalance(refreshInterval = 0) {
         setBalance(currentBalance);
         setLastUpdated(result.lastUpdated);
         
-        // Zero balance path - ALWAYS reset interest to zero when balance is zero
+        // Zero balance path - use PostgreSQL interest value
         if (currentBalance <= 0.0001 || forceInterestReset) {
-          console.log(`Zero balance or interest reset forced - ensuring interest is zero`);
+          console.log(`Zero balance or interest reset forced - using PostgreSQL interest value: ${pgInterest}`);
           
-          // Reset client-side interest
-          accumulatedInterestRef.current = 0;
-          setInterest(0);
+          // Use PostgreSQL interest value directly
+          accumulatedInterestRef.current = pgInterest;
+          setInterest(pgInterest);
           
-          // Reset database interest if needed
-          if (pgInterest > 0 || forceInterestReset) {
-            console.log('Resetting interest in database to match zero balance');
+          // Only force interest reset if explicitly requested
+          if (forceInterestReset) {
+            console.log('Interest reset explicitly forced - resetting in database');
             await UsdcBalanceService.resetInterest(TARGET_WALLET);
           }
           
@@ -380,13 +374,12 @@ export function useUsdcBalance(refreshInterval = 0) {
         else {
           console.log(`Non-zero balance (${currentBalance}) - normal interest handling`);
           
-          // Always use PostgreSQL interest as the source of truth
-          // This prevents any possible divergence between client and server
-          accumulatedInterestRef.current = pgInterest;
-          setInterest(pgInterest);
+          // Always use the PostgreSQL interest directly without resetting
+          // Even if coming from a zero balance state
+          accumulatedInterestRef.current = result.interest;
+          setInterest(result.interest);
           
-          // Start client-side interest calculation with the current balance
-          console.log(`Starting interest calculation with current balance: ${currentBalance}`);
+          // Start interest calculation with the current balance
           startClientInterestCalculation(currentBalance);
         }
         
@@ -456,52 +449,88 @@ export function useUsdcBalance(refreshInterval = 0) {
         TARGET_WALLET,
         (newBalance, lastUpdated) => {
           // Skip updates if component is unmounted
-          if (!isMountedRef.current) return;
+          if (!isMountedRef.current) {
+            console.log('Skip update - component unmounted');
+            return;
+          }
           
+          if (shouldThrottleApiCalls()) {
+            console.log('Throttling real-time update (too frequent)');
+            return;
+          }
+          
+          // Enhanced logging to help debug balance updates
+          console.log(`Real-time: Balance updated to ${newBalance} at ${new Date().toISOString()}`);
+          
+          // Check if balance is zero or near-zero (using floating point safety threshold)
+          const isZeroBalance = newBalance <= 0.0001;
+          const wasZeroBalance = balance <= 0.0001;
+          
+          // Handle deposit case (zero to non-zero transition)
+          if (wasZeroBalance && !isZeroBalance) {
+            console.log('Real-time: Deposit detected after zero balance - NOT resetting interest');
+          }
+          
+          // Special handling for zero balance
+          if (isZeroBalance) {
+            console.log('Real-time: Zero balance detected - using PostgreSQL interest value');
+            // No need to manually reset interest here, let PostgreSQL handle it
+            // The interest will be correctly retrieved in the syncAfterBalanceUpdate function
+          }
+          
+          // Log and update the state directly with the real-time balance
           console.log(`Balance updated via subscription: ${newBalance}`);
-          
-          // Update UI
           setBalance(newBalance);
-          setLastUpdated(lastUpdated);
           
-          // CRITICAL FIX: Create special sync function that uses the new balance
-          // instead of the React state that hasn't updated yet
-          const syncWithCorrectBalance = async () => {
+          // Only update lastUpdated if we have a valid date
+          if (lastUpdated) {
+            setLastUpdated(lastUpdated);
+          } else {
+            setLastUpdated(new Date());
+          }
+          
+          // Properly sync with database after a real-time balance update
+          // We need to get the interest value and start/stop calculations
+          const syncAfterBalanceUpdate = async () => {
             try {
               // Stop any existing interest calculation
-              await stopClientInterestCalculation();
+              stopClientInterestCalculation();
               
-              // Get latest database values
+              // Fetch full balance data including interest
               const result = await UsdcBalanceService.getLatestBalance(TARGET_WALLET);
-              
-              if (result.success) {
-                console.log(`Refreshing with new balance ${result.balance} and interest ${result.interest}`);
-                
-                // Reset interest to zero if balance is near zero
-                if (result.balance <= 0.0001) {
-                  console.log('Zero balance - ensuring interest is zero');
-                  accumulatedInterestRef.current = 0;
-                  setInterest(0);
-                  await UsdcBalanceService.resetInterest(TARGET_WALLET);
-                } else {
-                  console.log(`Non-zero balance (${result.balance}) - normal interest handling`);
-                  
-                  // Use PostgreSQL interest value
-                  accumulatedInterestRef.current = result.interest;
-                  setInterest(result.interest);
-                  
-                  // Start interest calculation with verified balance
-                  console.log(`Starting interest calculation with balance: ${result.balance}`);
-                  startClientInterestCalculation(result.balance);
-                }
+              if (!result.success) {
+                console.log('Failed to fetch complete data after real-time update');
+                return;
               }
-            } catch (err) {
-              console.error('Error in syncWithCorrectBalance:', err);
+              
+              console.log(`Refreshing with new balance ${result.balance} and interest ${result.interest}`);
+              
+              // Handle zero balance case - ensure interest is zero
+              if (result.balance <= 0.0001) {
+                console.log('Zero balance - using PostgreSQL interest value');
+                // Use the PostgreSQL interest value directly - it should already be zero for withdrawals
+                accumulatedInterestRef.current = result.interest;
+                setInterest(result.interest);
+              } 
+              // Handle non-zero balance - start interest calculation
+              else {
+                console.log(`Non-zero balance (${result.balance}) - normal interest handling`);
+                
+                // Always use the PostgreSQL interest directly without resetting
+                // Even if coming from a zero balance state
+                accumulatedInterestRef.current = result.interest;
+                setInterest(result.interest);
+                
+                // Start interest calculation with the current balance
+                startClientInterestCalculation(result.balance);
+              }
+            } catch (error) {
+              console.error('Error in syncAfterBalanceUpdate:', error);
             }
           };
           
-          // Run the specialized sync function
-          syncWithCorrectBalance();
+          // Call the sync function
+          syncAfterBalanceUpdate();
         }
       );
       
@@ -526,6 +555,13 @@ export function useUsdcBalance(refreshInterval = 0) {
           } else {
             console.log('syncInterestToDatabase not available, skipping sync');
           }
+        }
+      } else if (nextAppState === 'active') {
+        // App is coming back into focus, refresh the balance and interest from PostgreSQL
+        console.log('App returning to foreground, refreshing from PostgreSQL...');
+        
+        if (isMountedRef.current) {
+          await refreshBalance();
         }
       }
     };

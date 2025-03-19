@@ -149,6 +149,8 @@ const HomePage = function HomePage() {
     resetInterest,
     accumulatedInterestRef,
     registerWithdrawal,
+    setBalance,
+    setInterest,
   } = useUsdcBalance(refreshIntervalState);
   
   // Create a ref for the interest value to track changes
@@ -603,8 +605,8 @@ const HomePage = function HomePage() {
       console.log('======= CRITICAL: RESETTING INTEREST AFTER WITHDRAWAL =======');
       
       // First, immediately update UI to show zero balance and interest
-      setUsdcBalance(0);
-      setInterestValue(0);
+      setBalance(0);
+      setInterest(0);
       
       // IMPORTANT: Use the new registerWithdrawal function to properly track the withdrawal
       const success = await registerWithdrawal();
