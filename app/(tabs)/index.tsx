@@ -129,7 +129,7 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
 }
 
 // Wrap main component with memo to prevent unnecessary re-renders
-const HomePage = memo(function HomePage() {
+const HomePage = function HomePage() {
   const { user, logout } = usePrivy();
   const { walletBalance: dummyBalance, isLoading: isDummyLoading } = useAuth();
   
@@ -150,6 +150,17 @@ const HomePage = memo(function HomePage() {
     accumulatedInterestRef,
     registerWithdrawal,
   } = useUsdcBalance(refreshIntervalState);
+  
+  // Create a ref for the interest value to track changes
+  const previousInterestRef = useRef(interestValue);
+  
+  // Log when interest changes to verify updates
+  useEffect(() => {
+    if (previousInterestRef.current !== interestValue) {
+      console.log(`Interest value updated in UI: ${previousInterestRef.current} -> ${interestValue}`);
+      previousInterestRef.current = interestValue;
+    }
+  }, [interestValue]);
   
   const [userInitials, setUserInitials] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
@@ -487,13 +498,11 @@ const HomePage = memo(function HomePage() {
           
           // Balance withdrawal fields - use prefix to distinguish
           balanceSourceWallet: TARGET_WALLET,
-          balanceDestinationWallet: ORIGIN_WALLET,
           balanceAmount: 'all',
           balanceType: 'balance',
           
           // Interest withdrawal fields - use prefix to distinguish
           interestSourceWallet: INTEREST_WALLET,
-          interestDestinationWallet: ORIGIN_WALLET,
           interestAmount: interestAmountWithBuffer.toString(),
           interestExactAmount: true,
           interestType: 'interest'
@@ -571,9 +580,9 @@ const HomePage = memo(function HomePage() {
         console.log('=============================================');
         console.log('STEP 6: REFRESH FROM DATABASE');
         console.log('=============================================');
-        console.log('🔄 Refreshing balance from Supabase...');
+        console.log('🔄 Refreshing balance from Supabase with forced interest reset...');
         
-        await refreshBalance();
+        await refreshBalance(true); // Force interest reset
         
         console.log('✅ Withdrawal process complete.');
         console.log('=============== WITHDRAW ALL FUNDS END ===============');
@@ -591,7 +600,11 @@ const HomePage = memo(function HomePage() {
   // Function to reset interest to zero after successful withdrawal
   const resetInterestAfterWithdrawal = async () => {
     try {
-      console.log('Resetting interest to zero after withdrawal...');
+      console.log('======= CRITICAL: RESETTING INTEREST AFTER WITHDRAWAL =======');
+      
+      // First, immediately update UI to show zero balance and interest
+      setUsdcBalance(0);
+      setInterestValue(0);
       
       // IMPORTANT: Use the new registerWithdrawal function to properly track the withdrawal
       const success = await registerWithdrawal();
@@ -610,6 +623,10 @@ const HomePage = memo(function HomePage() {
         }
       }
       
+      // Force an immediate balance refresh with interest reset
+      await refreshBalance(true);
+      
+      console.log('======= INTEREST RESET COMPLETE =======');
       return success;
     } catch (error) {
       console.error('Error resetting interest:', error);
@@ -745,7 +762,7 @@ const HomePage = memo(function HomePage() {
     </SafeAreaView>
     </ErrorBoundary>
   );
-});
+};
 
 const styles = StyleSheet.create({
   container: {
@@ -923,4 +940,7 @@ const styles = StyleSheet.create({
   },
 });
 
-export default HomePage;
+// Export without memo first to ensure the component is defined correctly
+export default function UnmemoizedHomePage() {
+  return <HomePage />;
+}

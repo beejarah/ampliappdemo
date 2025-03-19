@@ -30,9 +30,37 @@ yarn-error.*
 *.pem
 
 # local env files
+.env*
 .env*.local
+env.js
+.secret*
 
 # typescript
 *.tsbuildinfo
 
-app-example
+# app examples and unused code
+app-example/
+
+# Credentials and secrets
+*credentials*
+*secret*
+*.pem
+*.key
+.npmrc
+
+# Local development
+*.log
+.vscode/
+.idea/
+.gradle
+local.properties
+
+# Build files
+android/app/build/
+ios/build/
+android/app/debug
+android/app/release
+
+# Personal notes
+*notes.md
+*TODO.md

@@ -1,9 +1,11 @@
 -- Fix RLS Issues in Supabase
 -- Run these commands in the Supabase SQL Editor
 
--- 1. Enable RLS on both tables
+-- 1. Enable RLS on all tables
 ALTER TABLE public.wallet_balances ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.usdc_transactions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.wallet_withdrawals ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.interest_balances ENABLE ROW LEVEL SECURITY;
 
 -- 2. Create permissive policies for the service role (used by Tenderly)
 CREATE POLICY "Allow service role full access to wallet_balances" 
@@ -14,6 +16,18 @@ USING (true);
 
 CREATE POLICY "Allow service role full access to usdc_transactions"
 ON public.usdc_transactions
+FOR ALL
+TO service_role
+USING (true);
+
+CREATE POLICY "Allow service role full access to wallet_withdrawals"
+ON public.wallet_withdrawals
+FOR ALL
+TO service_role
+USING (true);
+
+CREATE POLICY "Allow service role full access to interest_balances"
+ON public.interest_balances
 FOR ALL
 TO service_role
 USING (true);
@@ -31,6 +45,18 @@ FOR SELECT
 TO authenticated
 USING (true);
 
+CREATE POLICY "Allow authenticated users to read wallet_withdrawals"
+ON public.wallet_withdrawals
+FOR SELECT
+TO authenticated
+USING (true);
+
+CREATE POLICY "Allow authenticated users to read interest_balances"
+ON public.interest_balances
+FOR SELECT
+TO authenticated
+USING (true);
+
 -- 4. Create policies for anonymous users (if needed)
 CREATE POLICY "Allow anon users to read wallet_balances"
 ON public.wallet_balances
@@ -40,6 +66,18 @@ USING (true);
 
 CREATE POLICY "Allow anon users to read usdc_transactions"
 ON public.usdc_transactions
+FOR SELECT
+TO anon
+USING (true);
+
+CREATE POLICY "Allow anon users to read wallet_withdrawals"
+ON public.wallet_withdrawals
+FOR SELECT
+TO anon
+USING (true);
+
+CREATE POLICY "Allow anon users to read interest_balances"
+ON public.interest_balances
 FOR SELECT
 TO anon
 USING (true);
