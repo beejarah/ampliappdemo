@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { RealtimeChannel } from '@supabase/supabase-js';
 import UsdcBalanceService, { TARGET_WALLET } from '../utils/usdcBalanceService';
 import getUsdcBalance from '../app/api/usdc-balance';
-import { Alert } from 'react-native';
+import { Alert, AppState, Platform } from 'react-native';
 import { useAuth } from '../app/_layout';
 
 // Static variables to help detect and prevent reload loops
@@ -568,9 +568,27 @@ export function useUsdcBalance(refreshInterval = 0) {
     
     // Try to add app state listener if available
     try {
-      const { AppState } = require('react-native');
-      AppState.addEventListener('change', handleAppStateChange);
+      // Use platform-specific approach for AppState
+      if (Platform.OS === 'web') {
+        // For web, use window events instead of AppState
+        // Use named functions so they can be properly removed later
+        const handleBlur = () => handleAppStateChange('background');
+        const handleFocus = () => handleAppStateChange('active');
+        
+        // Store references to these handlers
+        (window as any)._ampliBlurHandler = handleBlur;
+        (window as any)._ampliFocusHandler = handleFocus;
+        
+        window.addEventListener('blur', handleBlur);
+        window.addEventListener('focus', handleFocus);
+        console.log('Using window events for app state on web platform');
+      } else {
+        // For native platforms, use React Native's AppState
+        AppState.addEventListener('change', handleAppStateChange);
+        console.log('Using AppState for native platform');
+      }
     } catch (e) {
+      console.log('AppState setup error:', e);
       console.log('AppState not available, skipping listener setup');
     }
     
@@ -587,11 +605,28 @@ export function useUsdcBalance(refreshInterval = 0) {
       
       // Try to remove app state listener if available
       try {
-        const { AppState } = require('react-native');
-        // @ts-ignore - Clean up the listener
-        AppState.removeEventListener('change', handleAppStateChange);
+        // Use platform-specific cleanup
+        if (Platform.OS === 'web') {
+          // Retrieve the stored handlers
+          const handleBlur = (window as any)._ampliBlurHandler;
+          const handleFocus = (window as any)._ampliFocusHandler;
+          
+          // Only remove if they exist
+          if (handleBlur && handleFocus) {
+            window.removeEventListener('blur', handleBlur);
+            window.removeEventListener('focus', handleFocus);
+            
+            // Clean up references
+            delete (window as any)._ampliBlurHandler;
+            delete (window as any)._ampliFocusHandler;
+          }
+        } else {
+          // Remove AppState listener for native platforms
+          AppState.removeEventListener('change', handleAppStateChange);
+        }
       } catch (e) {
         // Ignore errors
+        console.log('Error removing app state listeners:', e);
       }
       
       // Don't actually unsubscribe from real-time updates to avoid rapid connect/disconnect

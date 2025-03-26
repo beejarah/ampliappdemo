@@ -1,11 +1,17 @@
 import React, { useState, useEffect, createContext, useContext } from 'react';
 import { Stack } from 'expo-router';
-import { useColorScheme, View, Text, ActivityIndicator, StyleSheet, Button } from 'react-native';
+import { useColorScheme, View, Text, ActivityIndicator, StyleSheet, Button, LogBox } from 'react-native';
 import { PrivyProvider, usePrivy } from '@privy-io/expo';
 import Constants from 'expo-constants';
 import ENV from '../env';
 import ErrorBoundary from '../components/ui/ErrorBoundary';
 import { useDevAutoLogin, isDevAutoLoginEnabled } from '../utils/devHelpers';
+
+// Suppress specific warnings in development
+LogBox.ignoreLogs([
+  'Using an insecure random number generator',
+  // Add any other warnings you want to suppress here
+]);
 
 // Get Privy App ID and Client ID from ENV
 const PRIVY_APP_ID = ENV.PRIVY_APP_ID;
