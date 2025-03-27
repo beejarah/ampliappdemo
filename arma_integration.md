@@ -48,7 +48,7 @@
 
 **Approach**: Scheduled Daily Token Refresh
 - Create a scheduled Tenderly action to refresh the JWT token
-- Run daily at a specific low-traffic time (e.g., 3:00 AM)
+- Run daily at 4:00 PM HST (Hawaii-Standard Time)
 - Store token in Tenderly secrets for use by other actions
 
 **Benefits**:
@@ -58,17 +58,68 @@
 - Reduces latency during ARMA interactions
 
 **Implementation Details**:
-- Use cron expression "0 3 * * *" for scheduling (3:00 AM daily)
+- Use cron expression "0 16 * * *" for scheduling (4:00 PM HST daily)
 - Include robust error handling and retry mechanisms
 - Optional fallback: check token age during operations as safety net
 
-## 5. Status Indicators
+## 5. Balance Tracking and Interest Calculation
+
+**Database Schema Updates**:
+- Add new fields:
+  - `is_arma_active`: boolean
+  - `arma_activation_timestamp`: timestamptz
+  - `last_known_balance`: numeric
+
+**Balance Tracking Logic**:
+- When ARMA is NOT active:
+  - Use actual `usdc_balance` from wallet
+  - Interest calculations run on this real balance
+- When ARMA is active:
+  - Use `last_known_balance` for display and calculations
+  - This balance captured right before ARMA activation
+  - Interest continues accumulating on this amount
+
+**State Transitions**:
+- ARMA Activation:
+  ```sql
+  last_known_balance = current_usdc_balance
+  is_arma_active = true
+  ```
+- ARMA Deactivation:
+  ```sql
+  usdc_balance = actual_wallet_balance
+  last_known_balance = null
+  is_arma_active = false
+  ```
+
+**Interest Calculation**:
+- Maintain existing interest calculation timing (10%/year, 0.5s updates)
+- Interest calculation starts from initial deposit regardless of ARMA state
+- Key timestamps remain unchanged:
+  - `last_deposit_timestamp`: marks initial fund arrival
+  - `last_withdrawal_timestamp`: for interest resets
+  - `last_interest_update`: tracks ongoing calculations
+- ARMA activation/deactivation does not affect interest timing
+- Additional interest will be subsidized from secondary wallet
+
+**Critical Flow**:
+```
+Deposit → Start Interest Calculation
+             ↓
+ARMA Activation (doesn't affect interest timing)
+             ↓
+ARMA Deactivation (doesn't affect interest timing)
+             ↓
+Withdrawal → Reset Interest
+```
+
+## 6. Status Indicators
 
 **UI Elements**:
 - Clear status indicator showing if ARMA agent is active
 - Updates based on known state of the agent
 
-## 6. Future Enhancements (Post-Initial Implementation)
+## 7. Future Enhancements (Post-Initial Implementation)
 
 **Protocol Selection**:
 - Allow users to select which protocols ARMA should utilize
